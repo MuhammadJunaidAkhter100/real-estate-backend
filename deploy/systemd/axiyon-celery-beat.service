@@ -1,0 +1,19 @@
+[Unit]
+Description=Axiyon Celery Beat scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/axiyon-backend
+EnvironmentFile=/home/ubuntu/axiyon-backend/.env
+ExecStart=/home/ubuntu/axiyon-backend/.venv/bin/celery -A api beat --loglevel=INFO --schedule=/home/ubuntu/axiyon-backend/celerybeat-schedule
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

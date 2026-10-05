@@ -1,0 +1,101 @@
+from django.urls import path
+
+from calling_agent.views import (
+    CallAnalyticsView,
+    CallDetailView,
+    CallEndView,
+    CallExportCSVView,
+    CallListView,
+    CallRecordingView,
+    CreateTaskToolView,
+    ElevenLabsWebhookView,
+    KnowledgeSearchToolView,
+    LeadContextToolView,
+    ManualCallInitiationView,
+    ProjectContextToolView,
+    ProjectSearchToolView,
+    RequestProposalToolView,
+    ResolveTransferToolView,
+    UnitSearchToolView,
+    UpdateLeadToolView,
+)
+
+urlpatterns = [
+    path('calls/', CallListView.as_view(), name='call-list'),
+    path('calls/export/', CallExportCSVView.as_view(), name='call-export-csv'),
+    path(
+        'calls/analytics/',
+        CallAnalyticsView.as_view(),
+        name='call-analytics',
+    ),
+    path(
+        'calls/initiate/',
+        ManualCallInitiationView.as_view(),
+        name='call-initiate',
+    ),
+    path(
+        'calls/<uuid:public_id>/end/',
+        CallEndView.as_view(),
+        name='call-end',
+    ),
+    path(
+        'calls/<uuid:public_id>/',
+        CallDetailView.as_view(),
+        name='call-detail',
+    ),
+    path(
+        'calls/<uuid:public_id>/recording/',
+        CallRecordingView.as_view(),
+        name='call-recording',
+    ),
+    path(
+        'tools/lead-context/',
+        LeadContextToolView.as_view(),
+        name='calling-tool-lead-context',
+    ),
+    path(
+        'tools/project-context/',
+        ProjectContextToolView.as_view(),
+        name='calling-tool-project-context',
+    ),
+    path(
+        'tools/project-search/',
+        ProjectSearchToolView.as_view(),
+        name='calling-tool-project-search',
+    ),
+    path(
+        'tools/unit-search/',
+        UnitSearchToolView.as_view(),
+        name='calling-tool-unit-search',
+    ),
+    path(
+        'tools/knowledge-search/',
+        KnowledgeSearchToolView.as_view(),
+        name='calling-tool-knowledge-search',
+    ),
+    path(
+        'tools/request-proposal/',
+        RequestProposalToolView.as_view(),
+        name='calling-tool-request-proposal',
+    ),
+    path(
+        'tools/create-task/',
+        CreateTaskToolView.as_view(),
+        name='calling-tool-create-task',
+    ),
+    path(
+        'tools/update-lead/',
+        UpdateLeadToolView.as_view(),
+        name='calling-tool-update-lead',
+    ),
+    path(
+        'tools/resolve-transfer/',
+        ResolveTransferToolView.as_view(),
+        name='calling-tool-resolve-transfer',
+    ),
+    path(
+        'webhooks/elevenlabs/',
+        ElevenLabsWebhookView.as_view(),
+        name='calling-webhook-elevenlabs',
+    ),
+]

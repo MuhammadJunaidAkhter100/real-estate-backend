@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Expiring Soon - Axiyon</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{margin:0;background:#0F151C;color:#ECEEF1;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{text-decoration:none}
+    .email-bg{width:100%;background:
+      radial-gradient(circle at top left, rgba(206,255,0,.13), transparent 34%),
+      radial-gradient(circle at top right, rgba(255,170,0,.12), transparent 30%),
+      linear-gradient(180deg,#121922 0%,#161D25 48%,#10161D 100%);padding:44px 14px}
+    .shell{max-width:640px;margin:0 auto}
+    .topline{height:1px;background:linear-gradient(90deg,transparent,rgba(206,255,0,.75),rgba(255,170,0,.8),transparent);margin:0 28px}
+    .panel{border-radius:28px;overflow:hidden;background:#18212A;border:1px solid rgba(255,255,255,.10);box-shadow:0 24px 70px rgba(0,0,0,.38)}
+    .hero{position:relative;padding:34px 38px 32px;background:
+      linear-gradient(135deg,rgba(35,45,55,.96) 0%,rgba(30,39,49,.98) 54%,rgba(22,29,37,.98) 100%);overflow:hidden}
+    .hero:before{content:'';position:absolute;right:-95px;top:-110px;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(255,170,0,.18),transparent 64%)}
+    .hero:after{content:'';position:absolute;left:-110px;bottom:-135px;width:310px;height:310px;border-radius:50%;background:radial-gradient(circle,rgba(206,255,0,.12),transparent 65%)}
+    .brand-row{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:34px}
+    .brand-card{display:inline-flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.10);border-radius:16px}
+    .brand-card img{display:block;width:92px;height:auto}
+    .status-pill{font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#FFB800;background:rgba(255,184,0,.10);border:1px solid rgba(255,184,0,.25);border-radius:999px;padding:8px 12px;white-space:nowrap}
+    .eyebrow{position:relative;z-index:1;display:inline-flex;align-items:center;gap:8px;color:#FFB800;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px}
+    .dot{width:7px;height:7px;background:#FFB800;border-radius:50%;box-shadow:0 0 18px rgba(255,184,0,.75)}
+    .title{position:relative;z-index:1;font-size:30px;line-height:1.18;font-weight:900;color:#fff;letter-spacing:-.8px;margin-bottom:14px}
+    .title span{color:#FFB800}
+    .subtitle{position:relative;z-index:1;font-size:15px;line-height:1.75;color:#B8C0CA;max-width:520px}
+    .accent{height:5px;background:linear-gradient(90deg,#FFB800 0%,#CEFF00 50%,#00D9D9 100%)}
+    .content{padding:34px 38px 38px;background:linear-gradient(180deg,#1E2731 0%,#18212A 100%)}
+    .section-card{background:rgba(39,49,59,.82);border:1px solid rgba(255,255,255,.09);border-radius:20px;padding:24px;margin-bottom:22px}
+    .card-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px}
+    .card-heading h2{font-size:14px;color:#fff;font-weight:900;letter-spacing:.4px;text-transform:uppercase}
+    .card-heading .line{height:1px;flex:1;background:linear-gradient(90deg,rgba(255,184,0,.35),transparent)}
+    .detail-row{display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+    .detail-row:last-child{border-bottom:0;padding-bottom:0}
+    .detail-row:first-of-type{padding-top:0}
+    .key{width:130px;flex-shrink:0;color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.7px}
+    .value{color:#ECEEF1;font-size:14px;font-weight:700;word-break:break-word}
+    .badge{display:inline-block;color:#FFB800;background:rgba(255,184,0,.12);border:1px solid rgba(255,184,0,.28);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:800;text-transform:capitalize}
+    .cta-wrap{text-align:center;margin:28px 0}
+    .btn{display:inline-block;color:#111827;background:linear-gradient(135deg,#FFB800 0%,#CEFF00 100%);font-size:14px;font-weight:900;letter-spacing:.2px;border-radius:14px;padding:15px 38px;box-shadow:0 14px 34px rgba(255,184,0,.22)}
+    .bottom{font-size:13px;line-height:1.8;color:#9CA3AF}
+    .bottom strong{color:#fff}
+    .footer{padding:28px 30px 32px;text-align:center;background:#141B23;border-top:1px solid rgba(255,255,255,.07)}
+    .footer-copy{font-size:12px;line-height:1.8;color:#64748B}
+  </style>
+</head>
+<body>
+  <div class="email-bg">
+    <div class="shell">
+      <div class="topline"></div>
+      <div class="panel">
+        <div class="hero">
+          <div class="brand-row">
+            <div class="brand-card">
+              <img src="https://www.axiyon.ai/logo.svg" alt="Axiyon">
+            </div>
+            <div class="status-pill">⏰ 24h Expiration Reminder</div>
+          </div>
+          <div class="eyebrow"><span class="dot"></span> Task Expiration Warning</div>
+          <h1 class="title">Your task expires in <span>24 hours</span>.</h1>
+          <p class="subtitle">Hi <strong style="color:#fff">{{ first_name }}</strong>, your task <strong>"{{ task_name }}"</strong> is scheduled to expire in 24 hours. Please review and complete it on time.</p>
+        </div>
+        <div class="accent"></div>
+        <div class="content">
+          <div class="section-card">
+            <div class="card-heading">
+              <h2>Task Details</h2>
+              <div class="line"></div>
+            </div>
+            <div class="detail-row">
+              <div class="key">Task Name</div>
+              <div class="value">{{ task_name }}</div>
+            </div>
+            {% if due_date_display %}
+            <div class="detail-row">
+              <div class="key">Due Date / Time</div>
+              <div class="value">{{ due_date_display }}</div>
+            </div>
+            {% endif %}
+            {% if priority %}
+            <div class="detail-row">
+              <div class="key">Priority</div>
+              <div class="value"><span class="badge">{{ priority }}</span></div>
+            </div>
+            {% endif %}
+            {% if lead_name %}
+            <div class="detail-row">
+              <div class="key">Related Lead</div>
+              <div class="value">{{ lead_name }}</div>
+            </div>
+            {% endif %}
+          </div>
+          {% if login_url %}
+          <div class="cta-wrap">
+            <a href="{{ login_url }}" class="btn">View Task in Axiyon</a>
+          </div>
+          {% endif %}
+          <p class="bottom">Thank you for staying on top of your tasks with <strong>Axiyon</strong>.</p>
+        </div>
+        <div class="footer">
+          <div class="footer-copy">© 2026 Axiyon. All rights reserved.<br>This is an automated task expiration reminder.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

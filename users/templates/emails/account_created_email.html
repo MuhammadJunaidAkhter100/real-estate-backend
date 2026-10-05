@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Your Axiyon Account is Ready</title><style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{margin:0;background:#0F151C;color:#ECEEF1;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{text-decoration:none}
+    .email-bg{width:100%;background:
+      radial-gradient(circle at top left, rgba(206,255,0,.13), transparent 34%),
+      radial-gradient(circle at top right, rgba(0,217,217,.12), transparent 30%),
+      linear-gradient(180deg,#121922 0%,#161D25 48%,#10161D 100%);padding:44px 14px}
+    .shell{max-width:640px;margin:0 auto}
+    .topline{height:1px;background:linear-gradient(90deg,transparent,rgba(206,255,0,.75),rgba(0,217,217,.8),transparent);margin:0 28px}
+    .panel{border-radius:28px;overflow:hidden;background:#18212A;border:1px solid rgba(255,255,255,.10);box-shadow:0 24px 70px rgba(0,0,0,.38)}
+    .hero{position:relative;padding:34px 38px 32px;background:
+      linear-gradient(135deg,rgba(35,45,55,.96) 0%,rgba(30,39,49,.98) 54%,rgba(22,29,37,.98) 100%);overflow:hidden}
+    .hero:before{content:'';position:absolute;right:-95px;top:-110px;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(206,255,0,.18),transparent 64%)}
+    .hero:after{content:'';position:absolute;left:-110px;bottom:-135px;width:310px;height:310px;border-radius:50%;background:radial-gradient(circle,rgba(0,217,217,.12),transparent 65%)}
+    .brand-row{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:34px}
+    .brand-card{display:inline-flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.10);border-radius:16px}
+    .brand-card img{display:block;width:92px;height:auto}
+    .status-pill{font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#CEFF00;background:rgba(206,255,0,.10);border:1px solid rgba(206,255,0,.25);border-radius:999px;padding:8px 12px;white-space:nowrap}
+    .eyebrow{position:relative;z-index:1;display:inline-flex;align-items:center;gap:8px;color:#AEE600;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px}
+    .dot{width:7px;height:7px;background:#CEFF00;border-radius:50%;box-shadow:0 0 18px rgba(206,255,0,.75)}
+    .title{position:relative;z-index:1;font-size:34px;line-height:1.14;font-weight:900;color:#fff;letter-spacing:-.8px;margin-bottom:14px}
+    .title span{color:#CEFF00}
+    .subtitle{position:relative;z-index:1;font-size:15px;line-height:1.75;color:#B8C0CA;max-width:520px;overflow-wrap:anywhere;word-break:break-word}
+    .accent{height:5px;background:linear-gradient(90deg,#CEFF00 0%,#A9D100 42%,#00D9D9 100%)}
+    .content{padding:34px 38px 38px;background:linear-gradient(180deg,#1E2731 0%,#18212A 100%)}
+    .section-card{background:rgba(39,49,59,.82);border:1px solid rgba(255,255,255,.09);border-radius:20px;padding:22px;margin-bottom:22px}
+    .meta-card{display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(255,255,255,.07),rgba(255,255,255,.035));border:1px solid rgba(255,255,255,.09);border-radius:18px;padding:16px 18px;margin-bottom:22px}
+    .avatar{width:44px;height:44px;border-radius:14px;overflow:hidden;white-space:nowrap;background:linear-gradient(135deg,#CEFF00 0%,#00D9D9 100%);color:#10161D;font-weight:900;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 26px rgba(206,255,0,.16);flex-shrink:0}
+    .meta-title{font-size:14px;font-weight:800;color:#fff;margin-bottom:3px;overflow-wrap:anywhere;word-break:break-word}.meta-sub{font-size:12px;color:#9CA3AF;line-height:1.45;overflow-wrap:anywhere;word-break:break-word}.meta-note{margin-left:auto;font-size:11px;color:#CEFF00;font-weight:800;text-transform:uppercase;letter-spacing:.9px;text-align:right;flex-shrink:0}
+    .card-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px}.card-heading h2{font-size:14px;color:#fff;font-weight:900;letter-spacing:.4px;text-transform:uppercase}.card-heading .line{height:1px;flex:1;background:linear-gradient(90deg,rgba(206,255,0,.35),transparent)}
+    .credential-box{background:linear-gradient(135deg,rgba(206,255,0,.11),rgba(0,217,217,.075));border:1px solid rgba(206,255,0,.23);border-radius:22px;padding:24px;margin-bottom:22px;box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+    .row{display:flex;gap:14px;align-items:center;min-width:0;padding:13px 0;border-bottom:1px solid rgba(255,255,255,.08)}.row:last-child{border-bottom:0;padding-bottom:0}.row:first-of-type{padding-top:0}
+    .key{width:112px;flex-shrink:0;color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.7px}.value{color:#ECEEF1;font-size:14px;font-weight:700;word-break:break-word;overflow-wrap:anywhere;min-width:0;flex:1}.mono{font-family:'Courier New',monospace;color:#CEFF00;background:rgba(0,0,0,.32);border:1px solid rgba(206,255,0,.18);border-radius:10px;padding:8px 12px;letter-spacing:1.1px}.badge{display:inline-block;max-width:100%;white-space:normal;overflow-wrap:anywhere;color:#75eeee;background:rgba(0,217,217,.12);border:1px solid rgba(0,217,217,.28);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:900;text-transform:capitalize}
+    .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:22px}.mini{min-width:0;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);border-radius:17px;padding:17px}.mini-label{font-size:10px;color:#9CA3AF;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:7px}.mini-value{font-size:14px;color:#fff;font-weight:800;line-height:1.45;overflow-wrap:anywhere;word-break:break-word}.teal{color:#00D9D9}
+    .cta-wrap{text-align:center;margin:28px 0}.btn{display:inline-block;color:#111827;background:linear-gradient(135deg,#CEFF00 0%,#B7E600 58%,#98C000 100%);font-size:14px;font-weight:900;letter-spacing:.2px;border-radius:14px;padding:15px 38px;box-shadow:0 14px 34px rgba(206,255,0,.22)}
+    .security{background:rgba(17,24,39,.55);border:1px solid rgba(255,255,255,.09);border-radius:19px;padding:20px;margin-bottom:24px}.security h3{font-size:14px;color:#CEFF00;margin-bottom:12px}.security p{font-size:13px;line-height:1.75;color:#B8C0CA;margin:8px 0}.bottom{font-size:13px;line-height:1.8;color:#9CA3AF}.bottom strong{color:#fff}.footer{padding:28px 30px 32px;text-align:center;background:#141B23;border-top:1px solid rgba(255,255,255,.07)}.footer-links{margin-bottom:14px}.footer-links a{font-size:12px;color:#9CA3AF;margin:0 10px}.footer-copy{font-size:12px;line-height:1.8;color:#64748B}
+    .otp-card{position:relative;text-align:center;background:linear-gradient(145deg,rgba(206,255,0,.12),rgba(0,217,217,.08));border:1px solid rgba(206,255,0,.25);border-radius:24px;padding:34px 20px;margin:26px 0;overflow:hidden}.otp-card:before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:260px;height:3px;background:linear-gradient(90deg,transparent,#CEFF00,#00D9D9,transparent)}.otp-label{font-size:11px;color:#CEFF00;text-transform:uppercase;letter-spacing:2px;font-weight:900}.otp-code{font-size:56px;line-height:1;font-weight:900;color:#fff;letter-spacing:14px;margin:22px 0;text-shadow:0 0 30px rgba(206,255,0,.22)}.valid{display:inline-block;background:rgba(17,24,39,.7);border:1px solid rgba(255,255,255,.1);border-radius:999px;color:#B8C0CA;padding:9px 16px;font-size:12px;font-weight:700}
+    @media(max-width:600px){.email-bg{padding:20px 10px}.panel{border-radius:22px}.hero,.content{padding-left:22px;padding-right:22px}.brand-row{display:block;margin-bottom:26px}.status-pill{display:inline-block;margin-top:14px}.title{font-size:27px}.subtitle{font-size:14px}.meta-card{align-items:flex-start}.meta-note{display:none}.row{display:block}.key{display:block;width:auto;margin-bottom:6px}.grid{grid-template-columns:1fr}.otp-code{font-size:40px;letter-spacing:8px}.footer-links a{display:inline-block;margin:5px 8px}}
+</style></head>
+<body>
+  <div class="email-bg"><div class="shell"><div class="topline"></div><div class="panel">
+    <div class="hero">
+      <div class="brand-row"><div class="brand-card"><img src="https://www.axiyon.ai/logo.svg" alt="Axiyon"></div><div class="status-pill">Account Ready</div></div>
+      <div class="eyebrow"><span class="dot"></span> Welcome Invitation</div>
+      <h1 class="title">Your <span>Axiyon</span> account is ready, {{ first_name }}.</h1>
+      <p class="subtitle">{{ created_by_name }} ({{ created_by_role }}) has created your access to Axiyon. Use the secure credentials below to sign in and start using your workspace.</p>
+    </div><div class="accent"></div>
+    <div class="content">
+      <div class="meta-card"><div class="avatar">{{ created_by_initials }}</div><div><div class="meta-title">{{ created_by_name }}</div><div class="meta-sub">{{ created_by_role }}</div></div><div class="meta-note">Created Account</div></div>
+      <div class="credential-box"><div class="card-heading"><h2>Login Credentials</h2><div class="line"></div></div>
+        <div class="row"><div class="key">Email</div><div class="value">{{ email }}</div></div>
+        <div class="row"><div class="key">Password</div><div class="value mono">{{ plain_password }}</div></div>
+        <div class="row"><div class="key">Role</div><div class="value"><span class="badge">{{ role }}</span></div></div>
+        {% if countries %}<div class="row"><div class="key">Countries</div><div class="value">{{ countries }}</div></div>{% endif %}
+      </div>
+      {% if company_name or team_name %}<div class="grid">
+        {% if company_name %}<div class="mini"><div class="mini-label">Company</div><div class="mini-value teal">{{ company_name }}</div></div>{% endif %}
+        {% if team_name %}<div class="mini"><div class="mini-label">Team</div><div class="mini-value">{{ team_name }}</div></div>{% endif %}
+        {% if company_countries %}<div class="mini" style="grid-column:1/-1"><div class="mini-label">Operating Countries</div><div class="mini-value">{{ company_countries }}</div></div>{% endif %}
+      </div>{% endif %}
+      <div class="cta-wrap"><a href="{{ login_url }}" class="btn" target="_blank" rel="noopener noreferrer">Log In to Axiyon →</a></div>
+      <div class="security"><h3>Security Reminder</h3><p>🔒 Change your temporary password immediately after your first login.</p><p>⚠️ Never share your password with anyone.</p><p>🛡️ Axiyon will never ask for your password through phone, chat, or email.</p></div>
+      <p class="bottom">If you have any issues logging in, contact your administrator or support team. Welcome aboard — we’re glad to have you on <strong>Axiyon</strong>.</p>
+    </div>
+    <div class="footer"><div class="footer-links"><a href="#">Privacy Policy</a><a href="#">Terms of Service</a><a href="#">Support</a></div><div class="footer-copy">© 2026 Axiyon. All rights reserved.<br>You received this email because an account was created for you on Axiyon.</div></div>
+  </div></div></div>
+</body></html>

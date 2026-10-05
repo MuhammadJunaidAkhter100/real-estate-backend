@@ -1,0 +1,1572 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ project_name }} - Investment Proposal</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500;700&family=Montserrat:ital,wght@0,200;0,300;0,400;0,500;0,700;1,400&family=Libre+Baskerville:wght@700&display=swap');
+
+    @page {
+      size: 1152pt 1629pt;
+      margin: 0;
+    }
+
+    :root {
+      --page-w: 1152pt;
+      --page-h: 1629pt;
+      --navy: #0d1f3c;
+      --navy-2: #0e2544;
+      --gold: #c9a96e;
+      --cream: #f3f1ec;
+      --paper: #f7f5ef;
+      --body: #3d4a6b;
+      --muted: #cdced5;
+      --sans: "Montserrat", Arial, sans-serif;
+      --serif: "Cormorant Garamond", Georgia, serif;
+      --brand: "Libre Baskerville", Georgia, serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      margin: 0;
+      background: #101827;
+      font-family: var(--sans);
+      color: var(--navy);
+    }
+
+    body {
+      padding: 0;
+    }
+
+    .doc {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    .page {
+      position: relative;
+      width: var(--page-w);
+      height: var(--page-h);
+      overflow: hidden;
+      background: var(--paper);
+      page-break-after: always;
+      break-after: page;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+
+    img {
+      display: block;
+    }
+
+    .text-gold {
+      color: var(--gold);
+    }
+
+    /* ===== COVER PAGE ===== */
+    .cover {
+      background: var(--navy);
+      color: #fff;
+    }
+
+    /* Rendered as a CSS background (not a scaled <img>) so WeasyPrint does not
+       leave a hairline seam across the middle of the full-bleed cover photo. */
+    .cover-photo {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background-position: center center;
+      background-repeat: no-repeat;
+      background-size: cover;
+      filter: brightness(.85) saturate(.9);
+      z-index: 0;
+    }
+
+    /* Navy overlay */
+    .cover::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 31, 58, .25);
+      z-index: 1;
+    }
+
+    /* Whitish foggy overlay */
+    .cover::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255, 255, 255, .08) 0%, rgba(255, 255, 255, .03) 40%, rgba(255, 255, 255, .05) 100%);
+      z-index: 1;
+    }
+
+
+
+
+
+
+
+    .cover-tree-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 720pt;
+      object-fit: cover;
+      object-position: top center;
+      z-index: 2;
+      opacity: 0.75;
+      pointer-events: none;
+    }
+
+    .cover-tree-overlay {
+      opacity: 0.55;
+      filter: blur(5px);
+    }
+
+    .cover-photo {
+      filter: brightness(0.88) saturate(1.05);
+    }
+
+
+    .tree-blue-tint {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+
+      background: linear-gradient(180deg,
+          rgba(4, 18, 42, 0.98) 0%,
+          rgba(6, 25, 55, 0.88) 12%,
+          rgba(12, 45, 88, 0.55) 28%,
+          rgba(35, 80, 135, 0.22) 50%,
+          rgba(20, 65, 115, 0.18) 62%,
+          rgba(10, 35, 70, 0.65) 82%,
+          rgba(4, 18, 42, 0.98) 100%);
+    }
+
+    .bottom-blue-overlay {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 560pt;
+      z-index: 2;
+      pointer-events: none;
+
+      background: linear-gradient(180deg,
+          rgba(4, 18, 42, 0) 0%,
+          rgba(4, 18, 42, 0.15) 20%,
+          rgba(4, 18, 42, 0.55) 50%,
+          rgba(4, 18, 42, 0.88) 80%,
+          rgba(4, 18, 42, 1) 100%);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+    .cover-border-1 {
+      position: absolute;
+      z-index: 2;
+      inset: 32pt;
+      border: 1.2pt solid #42474e;
+    }
+
+    .cover-border-2 {
+      position: absolute;
+      z-index: 2;
+      left: 66pt;
+      right: 66pt;
+      top: 76pt;
+      bottom: 76pt;
+      border: 3pt solid rgba(255, 255, 255, .92);
+    }
+
+    .cover-logo {
+      position: absolute;
+      z-index: 3;
+      top: 286pt;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 300pt;
+      height: 300pt;
+      object-fit: contain;
+    }
+
+    .cover-title {
+      position: absolute;
+      z-index: 3;
+      top: 579pt;
+      left: 0;
+      width: 100%;
+      text-align: center;
+      color: #fff8f2;
+      font: 700 51.4pt/1.25 var(--brand);
+    }
+
+    .cover-pill {
+      position: absolute;
+      z-index: 3;
+      top: 679pt;
+      left: 96pt;
+      right: 96pt;
+      text-align: center;
+    }
+
+    .cover-pill span {
+      display: inline-block;
+      max-width: 100%;
+      min-width: 576pt;
+      padding: 16pt 48pt;
+      border-radius: 6pt;
+      background: rgba(255, 255, 255, .78);
+      color: var(--navy-2);
+      text-align: center;
+      font: 400 33.3pt/1.35 var(--sans);
+      letter-spacing: .14em;
+    }
+
+    .cover-meta {
+      position: absolute;
+      z-index: 3;
+      left: 0;
+      right: 0;
+      top: 1334pt;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      padding: 0 170pt;
+      text-align: center;
+    }
+
+    .cover-meta b {
+      display: block;
+      color: var(--gold);
+      font: 700 13pt/1.2 var(--sans);
+      letter-spacing: .44em;
+      margin-bottom: 8pt;
+    }
+
+    .cover-meta span {
+      display: block;
+      color: #fff;
+      font: 300 23.2pt/1.15 var(--serif);
+      letter-spacing: .12em;
+    }
+
+    .cover-copy {
+      position: absolute;
+      z-index: 3;
+      left: 175pt;
+      right: 175pt;
+      top: 1435pt;
+      text-align: center;
+      color: #fff;
+      font: 300 15.96pt/1.64 var(--sans);
+    }
+
+    .cover-copy strong {
+      font-weight: 700;
+      color: #fff8f2;
+    }
+
+    /* ===== COMMON HEADER/FOOTER ===== */
+    .topbar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 126pt;
+      background: var(--navy);
+    }
+
+    .head-kicker {
+      position: absolute;
+      left: 68pt;
+      top: 32pt;
+      color: var(--gold);
+      font: 700 13pt/1 var(--sans);
+      letter-spacing: .35em;
+      text-transform: uppercase;
+    }
+
+    .head-title {
+      position: absolute;
+      left: 68pt;
+      top: 47pt;
+      color: #fff;
+      font: 300 40pt/1.05 var(--serif);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    .head-num {
+      position: absolute;
+      right: 66pt;
+      top: 45pt;
+      color: rgba(255, 255, 255, .55);
+      font: 200 40pt/1 var(--sans);
+    }
+
+    .footer {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 40pt;
+      background: var(--navy);
+      color: var(--muted);
+      font: 400 11.7pt/40pt var(--sans);
+      text-transform: uppercase;
+    }
+
+    .footer .conf {
+      position: absolute;
+      left: 70pt;
+      right: 360pt;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .footer .place {
+      position: absolute;
+      right: 70pt;
+      text-transform: none;
+    }
+
+    /* ===== PAGE 2 - KEY FACTS ===== */
+    .p2-body {
+      position: absolute;
+      inset: 126pt 0 40pt 0;
+      background: var(--paper);
+    }
+
+    .section-kicker {
+      color: var(--gold);
+      font: 700 13pt/1 var(--sans);
+      letter-spacing: .35em;
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      color: var(--navy);
+      font: 300 39pt/1.08 var(--serif);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .section-title-underline {
+      color: var(--navy);
+      font: 300 39pt/1.08 var(--serif);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+      padding-bottom: 12pt;
+      border-bottom: 3pt solid var(--navy);
+      display: inline-block;
+    }
+
+    .section-title-fullline {
+      color: var(--navy);
+      font: 300 39pt/1.08 var(--serif);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+      padding-bottom: 12pt;
+      position: relative;
+    }
+
+    .section-title-fullline::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 998pt;
+      height: 3pt;
+      background: var(--navy);
+    }
+
+    .p2-sec1 {
+      position: absolute;
+      left: 73pt;
+      top: 72pt;
+    }
+
+    .p2-sec2 {
+      position: absolute;
+      left: 88pt;
+      top: 1012pt;
+    }
+
+    .rule {
+      height: 2pt;
+      background: var(--gold);
+    }
+
+    .ff {
+      position: absolute;
+      left: 74pt;
+      top: 204pt;
+      width: 1004pt;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .ff td {
+      height: 61pt;
+      border-bottom: 2pt solid #efefef;
+    }
+
+    .ff td:first-child {
+      width: 500pt;
+      background: var(--navy);
+      color: #fff;
+      padding-left: 30pt;
+      font: 700 14.5pt/1 var(--sans);
+      letter-spacing: .38em;
+      text-transform: uppercase;
+    }
+
+    .ff td:last-child {
+      background: #fff;
+      color: var(--navy);
+      padding-left: 33pt;
+      font: 500 17.45pt/1.15 var(--sans);
+    }
+
+    .unit-box {
+      position: absolute;
+      left: 74pt;
+      top: 626pt;
+      width: 1004pt;
+      height: 344pt;
+      background: var(--navy);
+    }
+
+    .unit-head {
+      position: absolute;
+      left: 47pt;
+      top: 35pt;
+      right: 47pt;
+      color: #e8d5b0;
+      text-align: center;
+      font: 700 26pt/1 var(--sans);
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    .unit-head::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 45pt;
+      height: 2pt;
+      background: rgba(255, 255, 255, .2);
+    }
+
+    .metrics {
+      position: absolute;
+      left: 40pt;
+      right: 40pt;
+      top: 100pt;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      row-gap: 30pt;
+      text-align: center;
+    }
+
+    .metric-label {
+      color: var(--gold);
+      font: 700 9.5pt/1.35 var(--sans);
+      letter-spacing: .32em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      color: #fff;
+      font: 500 28pt/1.04 var(--sans);
+      margin-top: 5pt;
+    }
+
+    .metric-value.text-gold {
+      color: var(--gold);
+    }
+
+    .metric-sub {
+      color: rgba(255, 255, 255, .7);
+      font: 400 11pt/1.2 var(--sans);
+      letter-spacing: .05em;
+      margin-top: 4pt;
+    }
+
+    .spec-grid {
+      position: absolute;
+      left: 88pt;
+      top: 1133pt;
+      width: 998pt;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16pt 18pt;
+    }
+
+    .spec {
+      height: 110pt;
+      background: #fff;
+      border-left: 5pt solid var(--navy);
+      padding: 21pt 24pt 0;
+      overflow: hidden;
+    }
+
+    .spec b {
+      display: block;
+      color: var(--gold);
+      font: 700 11.7pt/1 var(--sans);
+      letter-spacing: .38em;
+      text-transform: uppercase;
+      margin-bottom: 8pt;
+    }
+
+    .spec span {
+      color: var(--navy);
+      font: 500 13pt/1.35 var(--sans);
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* ===== PAGE 3 - GALLERY ===== */
+    /*     
+    .gallery { background: var(--navy); color: #fff; }
+    .photo-grid { position: absolute; left: 40pt; top: 150pt; width: calc(100% - 80pt); height: 804pt; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; column-gap: 32pt; row-gap: 32pt; background: var(--navy); }
+    .photo-card { position: relative; background: var(--navy); overflow: hidden; }
+    .photo-card img { width: 100%; height: 255pt; object-fit: cover; }
+    .photo-card:nth-child(4) .layout-row { display: flex; gap: 6pt; height: 255pt; background: var(--navy); justify-content: center; align-items: stretch; }
+    .photo-card:nth-child(4) .layout-row .layout-img { flex: 1 1 0; min-width: 0; height: 255pt; width: auto; object-fit: contain; background: var(--navy); }
+    .photo-card:nth-child(4) .layout-img-single { height: 255pt; object-fit: contain; background: var(--navy); }
+    .photo-card:nth-child(4) .layout-placeholder { width: 100%; height: 255pt; background: var(--navy-2); }
+    .photo-title { margin: 34pt 0 0 0; color: #fff; font: 300 25pt/1.1 var(--serif); letter-spacing: .08em; text-transform: uppercase; }
+    .photo-desc { margin: 18pt 0 0 0; color: #fff; font: 400 13.17pt/2 var(--sans); }
+    
+    .floor { position: absolute; left: 0; right: 0; top: 930pt; bottom: 40pt; background: var(--paper); } */
+
+
+    /* ===== PAGE 3 - GALLERY ===== */
+    /* ===== PAGE 3 - GALLERY ===== */
+
+    /* ===== PAGE 3 - GALLERY ===== */
+
+    .gallery {
+      background: var(--navy);
+      color: #fff;
+    }
+
+    /* Main 2 × 2 gallery grid */
+    .photo-grid {
+      position: absolute;
+      left: 40pt;
+      top: 150pt;
+
+      width: calc(100% - 80pt);
+      height: 804pt;
+
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 386pt 386pt;
+
+      column-gap: 32pt;
+      row-gap: 32pt;
+
+      background: var(--navy);
+    }
+
+    /* Each gallery card */
+    .photo-card {
+      position: relative;
+
+      height: 386pt;
+      padding-top: 255pt;
+
+      background: var(--navy);
+      overflow: hidden;
+
+      /*
+   * Raw Django tags such as if/else/for conditions
+   * will not create visible spacing in direct HTML preview.
+   */
+      font-size: 0;
+      line-height: 0;
+    }
+
+    /*
+ * All four image areas stay at exactly the same position and size.
+ * This also prevents fallback elements from pushing images downward.
+ */
+    .photo-card>img,
+    .photo-card>.layout-row,
+    .photo-card>.layout-placeholder,
+    .photo-card>div[style*="height:255pt"] {
+      position: absolute;
+      top: 0;
+      left: 0;
+
+      display: block;
+      width: 100%;
+      height: 255pt;
+
+      margin: 0;
+      overflow: hidden;
+
+      background: var(--navy-2);
+    }
+
+    /* First, second and third direct images */
+    .photo-card>img {
+      z-index: 3;
+
+      width: 100%;
+      height: 255pt;
+
+      object-fit: cover;
+      object-position: center center;
+    }
+
+    /* Normal placeholder stays behind the actual image */
+    .photo-card>div[style*="height:255pt"],
+    .photo-card>.layout-placeholder {
+      z-index: 1;
+    }
+
+    /* Fourth image wrapper */
+    .photo-card:nth-child(4)>.layout-row {
+      z-index: 4;
+
+      display: block;
+      width: 100%;
+      height: 255pt;
+
+      margin: 0;
+      padding: 0;
+
+      overflow: hidden;
+      background: var(--navy-2);
+    }
+
+    /* Fourth image: same size as all other images */
+    .photo-card:nth-child(4) .layout-row .layout-img {
+      display: block;
+
+      width: 100%;
+      min-width: 100%;
+      max-width: 100%;
+
+      height: 255pt;
+      min-height: 255pt;
+      max-height: 255pt;
+
+      margin: 0;
+      padding: 0;
+
+      object-fit: cover;
+      object-position: center center;
+
+      background: var(--navy-2);
+    }
+
+    /*
+ * If sample_layout_images contains multiple images,
+ * show only the first one so the fourth frame does not divide
+ * into multiple small images.
+ */
+    .photo-card:nth-child(4) .layout-row .layout-img:not(:first-of-type) {
+      display: none;
+    }
+
+    /* Fourth image fallback */
+    .photo-card:nth-child(4)>.layout-img-single {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 3;
+
+      display: block;
+      width: 100%;
+      height: 255pt;
+
+      margin: 0;
+
+      object-fit: cover;
+      object-position: center center;
+
+      background: var(--navy-2);
+    }
+
+    /* Fourth card empty placeholder */
+    .photo-card:nth-child(4)>.layout-placeholder {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+
+      width: 100%;
+      height: 255pt;
+
+      margin: 0;
+
+      background: var(--navy-2);
+    }
+
+    /* Gallery image titles */
+    .photo-title {
+      position: relative;
+      z-index: 5;
+
+      margin: 22pt 0 0;
+
+      color: #fff;
+      font: 300 25pt/1.1 var(--serif);
+
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    /* Gallery descriptions */
+    .photo-desc {
+      position: relative;
+      z-index: 5;
+
+      margin: 10pt 0 0;
+      padding-bottom: 10pt;
+
+      color: #fff;
+      font: 400 13.17pt/1.6 var(--sans);
+    }
+
+    /*
+ * White floor section starts after the gallery.
+ * Gallery ends around 954pt, so 990pt gives approximately
+ * 36pt blue bottom spacing for the descriptions.
+ */
+    .floor {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 990pt;
+      bottom: 40pt;
+
+      background: var(--paper);
+    }
+
+    .floor-kicker {
+      position: absolute;
+      left: 68pt;
+      top: 66pt;
+
+      color: var(--gold);
+      font: 700 13.17pt/1 var(--sans);
+
+      letter-spacing: .35em;
+      text-transform: uppercase;
+    }
+
+    .floor-title {
+      position: absolute;
+      left: 68pt;
+      top: 89pt;
+
+      color: var(--navy);
+      font: 800 35pt/1 var(--sans);
+
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .floor-stats {
+      position: absolute;
+      left: 92pt;
+      top: 184pt;
+
+      width: 280pt;
+
+      display: grid;
+      gap: 55pt;
+
+      text-align: center;
+    }
+
+    .floor-stat {
+      height: 70pt;
+      padding-top: 10pt;
+
+      background: var(--navy);
+      color: #fff;
+    }
+
+    .floor-stat strong {
+      display: block;
+      font: 300 26.3pt/1 var(--sans);
+    }
+
+    .floor-stat span {
+      display: block;
+
+      margin-top: 8pt;
+
+      color: var(--gold);
+      font: 700 11.7pt/1 var(--sans);
+
+      letter-spacing: .38em;
+    }
+
+    .plan-img {
+      position: absolute;
+      right: 82pt;
+      top: 118pt;
+
+      width: 520pt;
+      height: 460pt;
+
+      object-fit: contain;
+      background: var(--paper);
+    }
+
+    /* ===== PAGE 4 - MARKET ANALYSIS ===== */
+    .analysis-page {
+      background: var(--paper);
+    }
+
+    .analysis-page .topbar {
+      height: 150pt;
+    }
+
+    .analysis-body {
+      position: absolute;
+      inset: 150pt 0 40pt;
+      background: var(--paper);
+    }
+
+    .intro {
+      position: absolute;
+      left: 74pt;
+      top: 55pt;
+      right: 78pt;
+      min-height: 92pt;
+      margin: 0;
+      padding: 0 0 0 28pt;
+      border-left: 4pt solid var(--gold);
+      color: var(--body);
+      font: 400 16.7pt/1.65 var(--sans);
+    }
+
+    .intro strong {
+      color: var(--navy);
+      font-weight: 700;
+    }
+
+    .stats-band {
+      position: absolute;
+      left: 74pt;
+      top: 168pt;
+      width: 1004pt;
+      height: 186pt;
+      background: var(--navy);
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      text-align: center;
+    }
+
+    .stat {
+      border-right: 1pt solid rgba(255, 255, 255, .14);
+      padding-top: 34pt;
+    }
+
+    .stat:last-child {
+      border-right: 0;
+    }
+
+    .stat strong {
+      color: var(--gold);
+      font: 500 40pt/1 var(--sans);
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 17pt;
+      color: #fff;
+      font: 700 10.8pt/2.15 var(--sans);
+      letter-spacing: .38em;
+      text-transform: uppercase;
+    }
+
+    .case-grid {
+      position: absolute;
+      left: 74pt;
+      right: 74pt;
+      top: 390pt;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18pt;
+    }
+
+    .case {
+      height: 300pt;
+      background: #f2f0ea;
+      padding: 72pt 28pt 0;
+      border-top: 4pt solid var(--navy);
+    }
+
+    .case:nth-child(2),
+    .case:nth-child(3) {
+      border-top-color: var(--gold);
+    }
+
+    .case h3 {
+      margin: 0 0 9pt;
+      color: var(--navy);
+      font: 700 20pt/1.15 var(--serif);
+      letter-spacing: .02em;
+    }
+
+    .case p {
+      margin: 0;
+      color: var(--body);
+      font: 400 13.65pt/1.62 var(--sans);
+    }
+
+    .case strong {
+      color: var(--navy);
+      font-weight: 700;
+    }
+
+    .savills {
+      position: absolute;
+      left: 74pt;
+      right: 74pt;
+      top: 1014pt;
+      height: 210pt;
+      background: var(--navy);
+      padding: 42pt 24pt 0;
+    }
+
+    .savills h3 {
+      margin: 0 0 10pt;
+      color: var(--gold);
+      font: 700 19pt/1.2 var(--sans);
+    }
+
+    .savills p {
+      margin: 0;
+      color: #fff;
+      font: 400 16.08pt/1.55 var(--sans);
+    }
+
+    /* ===== PAGE 5 - PAYMENT PLAN ===== */
+    .pay-body {
+      position: absolute;
+      inset: 150pt 0 40pt;
+      background: var(--paper);
+    }
+
+    .hero-cards {
+      position: absolute;
+      left: 93pt;
+      right: 93pt;
+      top: 52pt;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28pt;
+    }
+
+    .hero-card {
+      height: 196pt;
+      background: #f0eee9;
+      border-bottom: 5pt solid var(--navy);
+      text-align: center;
+      padding-top: 39pt;
+    }
+
+    .hero-card strong {
+      color: var(--navy);
+      font: 500 61pt/1 var(--sans);
+      letter-spacing: .01em;
+    }
+
+    .hero-card span {
+      display: block;
+      margin-top: 18pt;
+      color: var(--gold);
+      font: 700 13pt/1.35 var(--sans);
+      letter-spacing: .42em;
+      text-transform: uppercase;
+    }
+
+    .pay-table {
+      position: absolute;
+      left: 93pt;
+      top: 288pt;
+      width: 966pt;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .pay-table th {
+      height: 72pt;
+      background: #213d66;
+      color: #e8d5b0;
+      text-align: left;
+      padding-left: 28pt;
+      font: 700 12.6pt/1.25 var(--sans);
+      letter-spacing: .36em;
+      text-transform: uppercase;
+    }
+
+    .pay-table td {
+      height: 88pt;
+      background: #fff;
+      color: var(--navy);
+      text-align: left;
+      padding: 0 28pt;
+      font: 400 16.8pt/1.24 var(--sans);
+      border-bottom: 2pt solid #e8e7e2;
+      vertical-align: middle;
+    }
+
+    .pay-table tbody tr:nth-child(2) td {
+      background: #f1f0ea;
+    }
+
+    .pay-table td:nth-child(1),
+    .pay-table td:nth-child(4) {
+      font-weight: 700;
+    }
+
+    .pay-table td:nth-child(3) {
+      font: 700 32pt/1 var(--serif);
+    }
+
+    .pay-table td:nth-child(5) {
+      color: var(--body);
+      font: 500 16pt/1.27 var(--sans);
+    }
+
+    .pay-table tfoot td {
+      height: 61pt;
+      background: var(--navy);
+      color: #e8d5b0;
+      border: 0;
+      font: 700 14.2pt/1.2 var(--sans);
+    }
+
+    .pay-table tfoot td:nth-child(3) {
+      color: var(--gold);
+      font: 700 18pt/1 var(--sans);
+    }
+
+    .pay-table tfoot td:nth-child(4) {
+      color: #e8d5b0;
+      font: 700 18pt/1 var(--sans);
+    }
+
+    .mortgage {
+      position: absolute;
+      left: 93pt;
+      right: 93pt;
+      top: 711pt;
+      height: 194pt;
+      background: linear-gradient(135deg, #0d1f3c 0%, #0d1f3c 52%, #173563 52%, #173563 100%);
+      padding: 31pt 94pt 0;
+    }
+
+    .mortgage h3 {
+      margin: 0 0 8pt;
+      color: var(--gold);
+      font: 700 18.9pt/1.2 var(--sans);
+    }
+
+    .mortgage p {
+      margin: 0;
+      color: #fff;
+      font: 400 14.6pt/1.57 var(--sans);
+    }
+
+    .cta {
+      position: absolute;
+      left: 166pt;
+      top: 980pt;
+      width: 500pt;
+    }
+
+    .cta h3 {
+      margin: 0 0 12pt;
+      color: var(--navy);
+      font: 500 26.2pt/1.2 var(--serif);
+      letter-spacing: .02em;
+    }
+
+    .cta p {
+      margin: 0;
+      color: var(--body);
+      font: 400 14.55pt/1.7 var(--sans);
+    }
+
+    .disclaimer {
+      position: absolute;
+      left: 70pt;
+      right: 70pt;
+      bottom: 62pt;
+      color: #000;
+      font: italic 12pt/1.34 var(--sans);
+    }
+
+    @media print {
+
+      html,
+      body {
+        width: var(--page-w);
+        margin: 0;
+        padding: 0;
+        background: #fff;
+      }
+
+      .doc {
+        display: block;
+      }
+
+      .page {
+        width: var(--page-w);
+        height: var(--page-h);
+        max-width: none;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="doc">
+    <!-- PAGE 1: COVER -->
+    <section class="page cover">
+      {% if background_image %}
+      <div class="cover-photo" style="background-image: url('{{ background_image }}');"></div>
+      {% endif %}
+
+      <!-- <img class="cover-tree-overlay" src="https://axiyon-bucket.s3.amazonaws.com/media/projects/28_we/images/image.png" alt=""> -->
+      <div class="tree-blue-tint"></div>
+
+      <div class="bottom-blue-overlay"></div>
+
+
+      <div class="cover-border-1"></div>
+      <div class="cover-border-2"></div>
+      {% if logo_image %}
+      <img class="cover-logo" src="{{ logo_image }}" alt="logo">
+      {% endif %}
+      <div class="cover-title">{{ project_name }}</div>
+      <div class="cover-pill"><span>{{ location }}</span></div>
+      <!-- <div class="cover-pill"><span>STAINES-UPON-THAMES, UK</span></div> -->
+      <div class="cover-meta">
+        <div><b>PREPARED FOR:</b><span>[ {{ client_name|default:"CLIENT NAME" }} ]</span></div>
+        <div><b>DATE:</b><span>[ {{ date|default:"DATE" }} ]</span></div>
+        <div><b>YOUR SPECIALIST</b><span>[ {{ agent_name|default:"AGENT NAME" }} ]</span></div>
+      </div>
+      <p class="cover-copy">This investment proposal has been exclusively prepared for your consideration. {{ project_name|default:"N/A" }} represents a rare opportunity to acquire a high-yield, city-centre {{ country_name|default:"N/A" }} apartment within your target budget of <strong style="color: var(--gold); font-weight: 700;">{{ target_budget|default:"N/A" }}</strong> — in {{ city_name|default:"N/A" }}, {{ country_name|default:"N/A" }}'s fastest-growing city for rental returns.</p>
+    </section>
+
+    <!-- PAGE 2: KEY FACTS -->
+    <section class="page">
+      <div class="topbar">
+        <div class="head-kicker">Development Overview</div>
+        <div class="head-title">Key Facts & UNIT FINANCIALS</div>
+        <div class="head-num">02</div>
+      </div>
+      <div class="p2-body">
+        <div class="p2-sec1">
+          <div class="section-kicker">Development Data</div>
+          <div class="section-title-fullline" style="margin-top: 8pt;">DEVELOPMENT FAST FACTS</div>
+        </div>
+
+        <table class="ff">
+          <tr>
+            <td>ADDRESS</td>
+            <td>{{ fact_address }}</td>
+          </tr>
+          <tr>
+            <td>EST. COMPLETION</td>
+            <td>{{ fact_completion }}</td>
+          </tr>
+          <tr>
+            <td>LEASE LENGTH</td>
+            <td>{{ fact_lease_length }}</td>
+          </tr>
+          <tr>
+            <td>BUILDING HEIGHT</td>
+            <td>{{ fact_building_height }}</td>
+          </tr>
+          <tr>
+            <td>TOTAL UNITS</td>
+            <td>{{ fact_total_units }}</td>
+          </tr>
+          <tr>
+            <td>EST. RENTAL YIELDS</td>
+            <td>{{ fact_rental_yield }}</td>
+          </tr>
+        </table>
+
+        <div class="unit-box">
+          {% if has_unit %}
+          <div class="unit-head">UNIT {{ unit_label|default:"UNIT" }} — YOUR SELECTED APARTMENT</div>
+          {% else %}
+          <div class="unit-head">YOUR SELECTED APARTMENT</div>
+          {% endif %}
+          <div class="metrics">
+            <!-- Row 1: List Price, Discounted Price, Size -->
+            <div>
+              <div class="metric-label">LIST PRICE</div>
+              <div class="metric-value">{{ unit_list_price|default:price_from }}</div>
+              <div class="metric-sub">{% if unit_category %}{{ unit_category }}{% endif %}{% if unit_floor %} | {{
+                unit_floor }}{% endif %}</div>
+            </div>
+            <div>
+              <div class="metric-label">DISCOUNTED PRICE ({{ unit_discount_percentage|default:"0" }}% OFF)</div>
+              <div class="metric-value">{{ unit_discounted_price|default:price_from }}</div>
+              <div class="metric-sub">Saving of {{ unit_savings|default:"£0" }}</div>
+            </div>
+            <div>
+              <div class="metric-label">SIZE</div>
+              <div class="metric-value">{% if unit_area_m2 %}{{ unit_area_m2 }} m²{% else %}N/A{% endif %}</div>
+              <div class="metric-sub">{% if unit_area_ft2 %}{{ unit_area_ft2 }} sq ft{% endif %}</div>
+            </div>
+            <!-- Row 2: Monthly Rent, Rent Assurance, Gross Yield -->
+            <div>
+              <div class="metric-label">EXPECTED MONTHLY RENT</div>
+              <div class="metric-value">{{ unit_monthly_rent_market|default:"0" }}</div>
+              <div class="metric-sub">Market Rate</div>
+            </div>
+            <div>
+              <div class="metric-label">{{ unit_rent_assurance_pct|default:"7" }}% RENT ASSURANCE P/M</div>
+              <div class="metric-value">{{ unit_monthly_rent_guaranteed|default:"£0" }}</div>
+              <div class="metric-sub">Guaranteed Income</div>
+            </div>
+            <div>
+              <div class="metric-label">GROSS YIELD (MARKET)</div>
+              <div class="metric-value">{{ unit_gross_yield_market|default:"0.00" }}%</div>
+              <div class="metric-sub">Annual Return</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p2-sec2">
+          <div class="section-kicker">INTERIOR SPECIFICATION</div>
+          <div class="section-title-fullline" style="margin-top: 8pt;">APARTMENT FINISH & AMENITIES</div>
+        </div>
+
+        <div class="spec-grid">
+          <div class="spec"><b>FLOORING</b><span>{{ spec_flooring|default:"Engineered oak flooring is laid throughout the open-plan living areas with luxury carpets in all bedrooms." }}</span></div>
+          <div class="spec"><b>KITCHEN</b><span>{{ spec_kitchen|default:"Sleek modern kitchens feature fully integrated energy-efficient appliances, quartz worktops, and elegant contemporary cabinetry." }}</span></div>
+          <div class="spec"><b>BATHROOM</b><span>{{ spec_bathroom|default:"Elegantly appointed bathrooms include premium sanitaryware, chrome fittings, heated towel rails, and porcelain wall tiling." }}</span></div>
+          <div class="spec"><b>LIFTS</b><span>{{ spec_lifts|default:"Secure high-speed passenger lifts provide smooth and convenient access to all residential floors and basement areas." }}</span></div>
+          <div class="spec"><b>CYCLING</b><span>{{ spec_cycling|default:"Dedicated secure cycle storage facilities and allocated parking spaces are provided for residents within the development." }}</span></div>
+          <div class="spec"><b>TENURE</b><span>{{ fact_lease_length|default:"250 Years Leasehold" }}</span></div>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="conf">CONFIDENTIAL &middot; PREPARED EXCLUSIVELY FOR {{ client_name }}</span>
+        <span class="place">{{ location }}</span>
+      </div>
+    </section>
+
+    <!-- PAGE 3: VISUAL GALLERY -->
+    <section class="page gallery">
+      <div class="topbar">
+        <div class="head-kicker">VISUAL GALLERY</div>
+        <div class="head-title">BUILDING & INTERIOR VIEWS</div>
+        <div class="head-num">03</div>
+      </div>
+      <div class="photo-grid">
+        <div class="photo-card">
+          {% if gallery_image_1 %}
+          <!-- <img src="https://axiyon-bucket.s3.amazonaws.com/media/projects/160_/proposal_images/exterior/250304-EPG-FCO1-PC-001.Grey.jpg" alt="Building Exterior"> -->
+          <img src="{{ gallery_image_1 }}" alt="Building Exterior">
+          {% else %}
+          <div style="width:100%;height:255pt;background:var(--navy-2);"></div>
+          {% endif %}
+          <div class="photo-title">BUILDING EXTERIOR</div>
+          <div class="photo-desc">{{ gallery_desc_1|default:"Contemporary architectural design with premium facade materials and full-height windows. CGI sourced from developer brochure." }}</div>
+        </div>
+        <div class="photo-card">
+          {% if gallery_image_2 %}
+          <!-- <img src="https://axiyon-bucket.s3.amazonaws.com/media/projects/160_/proposal_images/1_bed_kitchen_dining/Kitchen%20and%20dining.jpg" alt="Kitchen & Dining"> -->
+          <img src="{{ gallery_image_2 }}" alt="Kitchen & Dining">
+          {% else %}
+          <div style="width:100%;height:255pt;background:var(--navy-2);"></div>
+          {% endif %}
+          <div class="photo-title">KITCHEN & DINING AREA</div>
+          <div class="photo-desc">{{ gallery_desc_2|default:"Modern open-plan kitchen with integrated appliances and designer finishes throughout." }}</div>
+        </div>
+        <div class="photo-card">
+          {% if gallery_image_3 %}
+          <!-- <img src="https://axiyon-bucket.s3.amazonaws.com/media/projects/160_/proposal_images/1_bed_master_bedroom/mklghkghfg.jpg" alt="Master Bedroom"> -->
+          <img src="{{ gallery_image_3 }}" alt="Master Bedroom">
+          {% else %}
+          <div style="width:100%;height:255pt;background:var(--navy-2);"></div>
+          {% endif %}
+          <div class="photo-title">MASTER BEDROOM</div>
+          <div class="photo-desc">{{ gallery_desc_3|default:"Spacious master bedroom with premium flooring and abundant natural light." }}</div>
+        </div>
+        <div class="photo-card">
+          {% if sample_layout_images %}
+          <div class="layout-row">
+            {% for img in sample_layout_images %}
+            <!-- <img src="https://axiyon-bucket.s3.amazonaws.com/media/projects/160_/proposal_images/1_bed_sample_layout/Priory%20House%20Showhome%20-%20by%20Ralph%20Media%20Group%2009151.jpg" alt="Floor Layout {{ forloop.counter }}" class="layout-img"> -->
+            <img src="{{ img }}" alt="Floor Layout {{ forloop.counter }}" class="layout-img">
+            {% endfor %}
+          </div>
+          {% elif gallery_image_4 %}
+          <img src="{{ gallery_image_4 }}" alt="Floor Layout" class="layout-img-single">
+          {% else %}
+          <div class="layout-placeholder"></div>
+          {% endif %}
+          <div class="photo-title">BED SAMPLE LAYOUT</div>
+          <div class="photo-desc">{{ gallery_desc_4|default:"Efficient floor layout maximizing living space with thoughtful room proportions." }}</div>
+        </div>
+      </div>
+      <div class="floor">
+        <div class="floor-kicker">{% if unit_label %}UNIT {{ unit_label }}{% if unit_floor %} — {{ unit_floor }}{% endif %}{% else %}Floor Plan{% endif %}</div>
+        <div class="floor-title">{% if unit_category %}{{ unit_category }} APT &middot; FLOOR PLAN{% else %}Typical Unit Layout{% endif %}</div>
+        <div class="floor-stats">
+          <div class="floor-stat"><strong>{{ unit_area_m2|default:"—" }} m&sup2;</strong><span>FLOOR AREA</span></div>
+          <div class="floor-stat"><strong>{{ unit_floor|default:"—" }}</strong><span>FLOOR</span></div>
+          <div class="floor-stat"><strong>{{ unit_area_ft2|default:"—" }}</strong><span>SQ FOOTAGE</span></div>
+        </div>
+        {% if floor_plan_image %}
+        <img class="plan-img" src="{{ floor_plan_image }}" alt="Floor Plan">
+        {% else %}
+        <div class="plan-img"
+          style="background:var(--paper);display:flex;align-items:center;justify-content:center;color:var(--muted);font:400 24pt var(--sans);">
+          Floor Plan</div>
+        {% endif %}
+      </div>
+      <div class="footer">
+        <span class="conf">CONFIDENTIAL &middot; PREPARED EXCLUSIVELY FOR {{ client_name }}</span>
+        <span class="place">{{ location }}</span>
+      </div>
+    </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <!-- PAGE 4: MARKET ANALYSIS -->
+    <section class="page analysis-page">
+      <div class="topbar" style="height:150pt;">
+        <div class="head-kicker">MARKET ANALYSIS</div>
+        <div class="head-title">THE INVESTMENT CASE</div>
+        <div class="head-num">04</div>
+      </div>
+      <div class="analysis-body">
+        <p class="intro">{% if market_intro %}{{ market_intro|safe }}{% else %}The UK property market continues to
+          demonstrate <strong>strong fundamentals</strong> for buy-to-let investors. With growing rental demand, limited
+          housing supply, and sustained economic growth in key regional cities, {{ location }} represents an exceptional
+          investment opportunity.{% endif %}</p>
+
+        <div class="stats-band">
+          <div class="stat"><strong>{{ average_rental_yield|default:"n/a" }}</strong><span>AVERAGE
+              RENTAL<br>YIELD</span></div>
+          <div class="stat"><strong>{{ annual_house_price_growth|default:"n/a" }}</strong><span>ANNUAL HOUSE
+              PRICE<br>GROWTH RATE</span></div>
+          <div class="stat"><strong>{{ local_employment_rate|default:"n/a" }}</strong><span>LOCAL
+              EMPLOYMENT<br>RATE</span></div>
+          <div class="stat"><strong>{{ growing_city_population|default:"n/a" }}</strong><span>GROWING
+              CITY<br>POPULATION</span></div>
+        </div>
+
+        <div class="case-grid">
+          {% if investment_cases %}
+          {% for case in investment_cases %}
+          <div class="case">
+            <h3>{{ case.title }}</h3>
+            <p>{{ case.body|safe }}</p>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="case">
+            <h3>Strong Rental Demand</h3>
+            <p>The city's growing population and expanding job market create <strong>consistent rental demand</strong>.
+              Young professionals and students seek quality accommodation close to employment centers and universities.
+            </p>
+          </div>
+          <div class="case">
+            <h3>Capital Appreciation</h3>
+            <p>Property values in the region have shown <strong>steady growth</strong> over the past decade.
+              Regeneration projects and infrastructure improvements continue to drive demand and value appreciation.</p>
+          </div>
+          <div class="case">
+            <h3>Economic Resilience</h3>
+            <p>The diverse local economy, spanning technology, healthcare, and education sectors, provides
+              <strong>economic stability</strong> and supports sustained property market performance.</p>
+          </div>
+          <div class="case">
+            <h3>Infrastructure Investment</h3>
+            <p>Significant government and private investment in transport links, including rail improvements, enhances
+              <strong>connectivity</strong> and attracts both residents and businesses to the area.</p>
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="savills">
+          <h3>{{ highlight_title|default:"Expert Market Insight" }}</h3>
+          <p>{{ highlight_body}} {{unit_gross_yield_market|default:"0.00"}}% gross rental yield, Unit {{unit_label}}'s
+            guaranteed "n/a"% rent assurance is therefore conservatively
+            benchmarked against the city average, offering immediate income security with upside to market rent of
+            {{ unit_monthly_rent_market|default:"0" }}/month upon assurance expiry</p>
+
+        </div>
+        <div class="footer">
+          <span class="conf">CONFIDENTIAL &middot; PREPARED EXCLUSIVELY FOR {{ client_name }}</span>
+          <span class="place">{{ location }}</span>
+        </div>
+    </section>
+
+    <!-- PAGE 5: PAYMENT PLAN -->
+    <section class="page analysis-page">
+      <div class="topbar" style="height:150pt;">
+        <div class="head-kicker">ACQUISITION STRUCTURE</div>
+        <div class="head-title">PAYMENT PLAN & NEXT STEPS</div>
+        <div class="head-num">05</div>
+      </div>
+      <div class="pay-body">
+        <div class="hero-cards">
+          <div class="hero-card">
+            <strong>{{ reservation_fee|default:"£125,000" }}</strong>
+            <span>RESERVATION FEE TO SOURCE</span>
+            <span>UNIT {{ unit_label|default:"1" }}</span>
+          </div>
+          <div class="hero-card">
+            <strong>{{ mortgage_amount|default:"n/a" }}</strong>
+            <span>MAXIMUM MORTGAGE AVAILABLE AT</span>
+            <span>COMPLETION</span>
+          </div>
+        </div>
+
+        <table class="pay-table">
+          <thead>
+            <tr>
+              <th style="width:180pt;">STAGE</th>
+              <th style="width:200pt;">INSTALMENT</th>
+              <th style="width:140pt;">%</th>
+              <th style="width:200pt;">AMOUNT (ON {{ unit_list_price }})</th>
+              <th>MILESTONE</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Reservation</td>
+              <td>Reservation Fee</td>
+              <td>----</td>
+              <td>{{ reservation_fee|default:"n/a" }}</td>
+              <td>Immediately - secures unit and added into the balance</td>
+            </tr>
+
+            <tr>
+              <td>Exchange</td>
+              <td>Downpayment</td>
+              <td>{{ exchange_percentage|default:"n/a" }}</td>
+              <td>{{ exchange_amount|default:"n/a" }}</td>
+              <td>On Exchange of Contracts</td>
+            </tr>
+
+            {% if second_installments_percentage %}
+            <tr>
+              <td>Installment</td>
+              <td>2nd Installment</td>
+              <td>{{ second_installments_percentage }}</td>
+              <td>{{ second_installments_amount|default:"n/a" }}</td>
+              <td>After 3 Months</td>
+            </tr>
+            {% endif %}
+
+            <tr>
+              <td>Completion</td>
+              <td>Balance</td>
+              <td>{{ completion_percentage|default:"n/a" }}</td>
+              <td>{{ stage_3_amount|default:"£87,500" }}</td>
+              <td>{{ fact_completion }} - Mortgage or Cash</td>
+            </tr>
+          </tbody>
+
+          <tfoot>
+            <tr>
+              <td colspan="2">TOTAL INVESTMENT</td>
+              <td>100%</td>
+              <td>{{ total_investment|default:"n/a" }}</td>
+              <td>{{ reservation_fee }} Reservation was added here</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div class="mortgage" {% if second_installments_percentage %} style="top:800pt;" {% endif %}>
+          <h3>Up to {{mortgage_amount}} Mortgage Available</h3>
+          <p>At completion ({{fact_completion}}), the balance can be settled via a {{country_name}} buy-to-let mortgage.
+            On a {{mortgage_amount}} basis on the {{unit_list_price}} price, a mortgage of approximately <strong
+              style="color: var(--gold); font-weight: 700;">{{mortgage_pct|default:"n/a"}}</strong> would be available —
+            reducing the total cash required to just the {{exchange_percentage}} deposit ({{exchange_amount}}) plus
+            reservation fee. Legacy's specialist advisors can facilitate introductions to {{country_name}} mortgage
+            brokers experienced in international investor applications.</p>
+        </div>
+
+        <div class="cta" {% if second_installments_percentage %} style="top:1070pt;" {% endif %}>
+          <h3>Ready to Reserve Unit {{unit_label|default:"n/a"}}?</h3>
+          <p>To proceed, simply confirm your interest and our team will issue the Reservation Form and wire transfer
+            details for the {{reservation_fee}} holding fee. Units at {{project_name}} are selling quickly — this
+            opportunity is subject to availability and prior reservation. We recommend acting within 48 hours to avoid
+            disappointment.</p>
+        </div>
+
+        <p class="disclaimer">*All prices are indicative only and subject to change. Rental yields and income figures
+          are projections based on current market data and are not guaranteed unless explicitly stated as rent
+          assurance. The 7% rent assurance is subject to developer terms. Up to {{mortgage_amount}} mortgages are
+          subject to individual credit assessment and UK lender criteria. This document has been prepared for
+          informational purposes and does not constitute regulated financial advice. Please speak to a qualified
+          financial advisor before making any investment decision.</p>
+      </div>
+      <div class="footer">
+        <span class="conf">CONFIDENTIAL · PREPARED EXCLUSIVELY FOR {{client_name}}</span>
+        <span class="place">{{ location }}</span>
+      </div>
+    </section>
+  </main>
+</body>
+
+</html>

@@ -1,0 +1,20 @@
+[Unit]
+Description=Axiyon Celery calling worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/axiyon-backend
+Environment=CALLING_AGENT_WORKER_CONCURRENCY=2
+EnvironmentFile=/home/ubuntu/axiyon-backend/.env
+ExecStart=/home/ubuntu/axiyon-backend/.venv/bin/celery -A api worker --loglevel=INFO --queues=calling --concurrency=${CALLING_AGENT_WORKER_CONCURRENCY} --prefetch-multiplier=1
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
