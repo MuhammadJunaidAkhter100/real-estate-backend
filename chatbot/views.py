@@ -7,7 +7,7 @@ from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -66,7 +66,7 @@ class ChatStreamView(APIView):
         const reader = res.body.getReader();
         // read chunks and parse SSE lines
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     @swagger_auto_schema(
         tags=['Chatbot'],
@@ -101,11 +101,16 @@ class ChatStreamView(APIView):
         if not thread_id:
             return Response({'detail': 'thread_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get or create session for this user + thread_id
-        session, _ = ChatSession.objects.get_or_create(
-            thread_id=thread_id,
-            user=request.user,
-        )
+        user = request.user if request.user.is_authenticated else None
+
+        # Reuse the same thread_id when it already exists, even for anonymous/public requests.
+        # A conversation is keyed on its thread_id; if the user is authenticated, attach it to the session.
+        session = ChatSession.objects.filter(thread_id=thread_id).first()
+        if session is None:
+            session = ChatSession.objects.create(thread_id=thread_id, user=user)
+        elif user is not None and session.user_id != user.pk:
+            session.user = user
+            session.save(update_fields=['user'])
 
         # Use first message as session title if not set yet
         if not session.title:
@@ -115,16 +120,19 @@ class ChatStreamView(APIView):
         # Use the thread_id exactly as provided (or the new session's UUID)
         thread_id_str = str(session.thread_id)
 
-        current_country = getattr(request.user, 'current_country', '') or ''
-        print("current_country", current_country)
-        user_id = request.user.id
-        print("user_id", user_id)  
-        user_role = getattr(request.user, 'role', '') or ''
-        print("user_role", user_role)   
+        if user is not None:
+            current_country = getattr(user, 'current_country', '') or ''
+            user_id = user.id
+            user_role = getattr(user, 'role', '') or ''
+        else:
+            current_country = ''
+            user_id = None
+            user_role = 'public'
 
         # Billing: one credit per chat turn, charged before the stream opens so
         # an exhausted allowance is a clean 403 instead of a broken stream.
-        charged_here = charge_chat_turn(request.user)
+        # Public chatbot requests bypass the billing gate.
+        charged_here = charge_chat_turn(user) if user is not None else False
 
         def _event_stream():
             yielded = False
@@ -144,7 +152,7 @@ class ChatStreamView(APIView):
             except Exception as exc:
                 # A turn that produced no answer at all is not billed.
                 if charged_here and not yielded:
-                    refund_chat_turn(request.user)
+                    refund_chat_turn(user)
                 error_payload = json.dumps({"type": "error", "detail": str(exc)})
                 yield f"data: {error_payload}\n\n"
 

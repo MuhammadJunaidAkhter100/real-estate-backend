@@ -18,7 +18,6 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
 
 from chatbot.prompts import SYSTEM_PROMPT
@@ -146,13 +145,42 @@ def should_continue(state: State) -> Literal["tools", END]:
     return END
 
 
+def tools_node(state: State) -> State:
+    """Execute tool calls from the last AI message for older LangGraph versions."""
+    last = state["messages"][-1]
+    if not hasattr(last, "tool_calls") or not last.tool_calls:
+        return {"messages": []}
+
+    tool_map = {tool.name: tool for tool in ALL_TOOLS}
+    tool_messages = []
+    for tool_call in last.tool_calls:
+        name = tool_call.get("name")
+        if name not in tool_map:
+            continue
+        tool = tool_map[name]
+        args = tool_call.get("args", {}) or {}
+        try:
+            result = tool.invoke(args)
+        except Exception as exc:
+            result = {"error": str(exc)}
+        tool_messages.append(
+            ToolMessage(
+                content=str(result),
+                tool_call_id=tool_call.get("id"),
+                name=name,
+            )
+        )
+
+    return {"messages": tool_messages}
+
+
 # ── Build graph ───────────────────────────────────────────────────────────────
 
 def _build_graph():
     builder = StateGraph(State)
 
     builder.add_node("agent", agent_node)
-    builder.add_node("tools", ToolNode(ALL_TOOLS))
+    builder.add_node("tools", tools_node)
 
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", should_continue)
