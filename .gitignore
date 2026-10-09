@@ -152,3 +152,4 @@ logo.py
 *.ipynb
 wordpress.html
 real-estate-server-key.ppk
+server.pem
