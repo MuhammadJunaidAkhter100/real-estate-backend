@@ -1,0 +1,58 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy Django app to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          command_timeout: 30m
+          timeout: 120s
+          debug: true
+          script: |
+            set -euxo pipefail
+
+            APP_DIR="/home/ubuntu/real-estate-backend"
+
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            if [ -f .venv/bin/activate ]; then
+              . .venv/bin/activate
+            fi
+
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+            python manage.py collectstatic --noinput
+            python manage.py migrate --noinput
+
+            sudo cp -f deploy/systemd/axiyon-celery-calling.service /etc/systemd/system/
+            sudo cp -f deploy/systemd/axiyon-celery-beat.service /etc/systemd/system/
+            sudo systemctl daemon-reload
+
+            sudo systemctl enable --now axiyon-celery-calling
+            sudo systemctl restart axiyon-celery-calling
+            sudo systemctl enable --now axiyon-celery-beat
+            sudo systemctl restart axiyon-celery-beat
+
+            if sudo systemctl list-unit-files | grep -q '^gunicorn\.service'; then
+              sudo systemctl restart gunicorn
+            fi
+
+            if sudo systemctl list-unit-files | grep -q '^daphne\.service'; then
+              sudo systemctl restart daphne
+            fi
+
+            sudo systemctl --no-pager status axiyon-celery-calling axiyon-celery-beat --lines=20

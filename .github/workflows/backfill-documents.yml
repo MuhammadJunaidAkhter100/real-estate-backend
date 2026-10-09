@@ -1,0 +1,29 @@
+name: Backfill Document Text
+
+# Manually triggered from the GitHub Actions tab ("Run workflow").
+# Extracts and caches text from project document PDFs so the chatbot can
+# answer from them. Kept separate from deploy so it can never slow it down.
+on:
+  workflow_dispatch:
+    inputs:
+      all:
+        description: 'Re-extract ALL documents (including ones already done)'
+        type: boolean
+        default: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run backfill via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 60m
+          script: |
+            set -e
+            cd /home/ubuntu/real-estate-backend
+            source .venv/bin/activate
+            python manage.py extract_document_texts ${{ inputs.all && '--all' || '' }}
