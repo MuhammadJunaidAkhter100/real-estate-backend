@@ -29,14 +29,19 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            if [ -f .venv/bin/activate ]; then
-              . .venv/bin/activate
+            if [ -x "$APP_DIR/venv/bin/python" ]; then
+              PYTHON="$APP_DIR/venv/bin/python"
+            elif [ -x "$APP_DIR/.venv/bin/python" ]; then
+              PYTHON="$APP_DIR/.venv/bin/python"
+            else
+              echo "No virtualenv Python found under $APP_DIR/venv or $APP_DIR/.venv" >&2
+              exit 1
             fi
 
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-            python manage.py collectstatic --noinput
-            python manage.py migrate --noinput
+            "$PYTHON" -m pip install --upgrade pip
+            "$PYTHON" -m pip install -r requirements.txt
+            "$PYTHON" manage.py collectstatic --noinput
+            "$PYTHON" manage.py migrate --noinput
 
             sudo cp -f deploy/systemd/axiyon-celery-calling.service /etc/systemd/system/
             sudo cp -f deploy/systemd/axiyon-celery-beat.service /etc/systemd/system/

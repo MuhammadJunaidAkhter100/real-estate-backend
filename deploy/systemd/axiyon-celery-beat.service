@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/home/ubuntu/axiyon-backend
-EnvironmentFile=/home/ubuntu/axiyon-backend/.env
-ExecStart=/home/ubuntu/axiyon-backend/.venv/bin/celery -A api beat --loglevel=INFO --schedule=/home/ubuntu/axiyon-backend/celerybeat-schedule
+WorkingDirectory=/home/ubuntu/real-estate-backend
+EnvironmentFile=/home/ubuntu/real-estate-backend/.env
+ExecStart=/home/ubuntu/real-estate-backend/venv/bin/celery -A api beat --loglevel=INFO --schedule=/home/ubuntu/real-estate-backend/celerybeat-schedule
 Restart=always
 RestartSec=5
 TimeoutStopSec=60

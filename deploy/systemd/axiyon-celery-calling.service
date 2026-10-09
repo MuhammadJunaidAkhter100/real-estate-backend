@@ -7,10 +7,10 @@ Wants=network-online.target
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/home/ubuntu/axiyon-backend
+WorkingDirectory=/home/ubuntu/real-estate-backend
 Environment=CALLING_AGENT_WORKER_CONCURRENCY=2
-EnvironmentFile=/home/ubuntu/axiyon-backend/.env
-ExecStart=/home/ubuntu/axiyon-backend/.venv/bin/celery -A api worker --loglevel=INFO --queues=calling --concurrency=${CALLING_AGENT_WORKER_CONCURRENCY} --prefetch-multiplier=1
+EnvironmentFile=/home/ubuntu/real-estate-backend/.env
+ExecStart=/home/ubuntu/real-estate-backend/venv/bin/celery -A api worker --loglevel=INFO --queues=calling --concurrency=${CALLING_AGENT_WORKER_CONCURRENCY} --prefetch-multiplier=1
 Restart=always
 RestartSec=5
 TimeoutStopSec=60
