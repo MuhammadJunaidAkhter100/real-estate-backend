@@ -5,8 +5,96 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 from projects.models import Project, Promotion, Unit
+from users.models import Company
 
 User = get_user_model()
+
+
+class CompanyProjectCreationTests(APITestCase):
+    def test_superadmin_can_create_project(self):
+        superadmin = User.objects.create_superuser(
+            email='project-superadmin@example.com',
+            password='password123',
+            first_name='Project',
+            last_name='Superadmin',
+        )
+        self.client.force_authenticate(user=superadmin)
+
+        response = self.client.post(
+            '/api/projects/development_portfolio/',
+            {'title': 'Superadmin Draft'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['title'], 'Superadmin Draft')
+        self.assertEqual(response.data['created_by'], superadmin.pk)
+
+    def test_company_admin_can_create_title_only_project_and_only_sees_own_company_projects(self):
+        own_company = Company.objects.create(name='Own Company')
+        other_company = Company.objects.create(name='Other Company')
+        company_admin = User.objects.create_user(
+            email='company-admin@example.com',
+            password='password123',
+            first_name='Company',
+            last_name='Admin',
+            company=own_company,
+            role=User.Role.COMPANY_ADMIN,
+            countries=[],
+            current_country='UK',
+        )
+        other_admin = User.objects.create_user(
+            email='other-admin@example.com',
+            password='password123',
+            first_name='Other',
+            last_name='Admin',
+            company=other_company,
+            role=User.Role.COMPANY_ADMIN,
+            countries=[],
+        )
+
+        self.client.force_authenticate(user=company_admin)
+        create_response = self.client.post(
+            '/api/projects/development_portfolio/',
+            {'title': 'My Draft Project'},
+            format='json',
+        )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.data)
+        self.assertEqual(create_response.data['title'], 'My Draft Project')
+        self.assertEqual(create_response.data['project_status'], Project.ProjectStatus.DRAFT)
+        self.assertEqual(create_response.data['starting_price'], '0.00')
+        self.assertEqual(create_response.data['description'], '')
+
+        Project.objects.create(
+            title='Own Company UAE Project',
+            description='',
+            location='',
+            developer='',
+            associated_country='UAE',
+            starting_price=0,
+            yield_percentage=0,
+            project_type=Project.ProjectType.RESIDENTIAL,
+            created_by=company_admin,
+        )
+        Project.objects.create(
+            title='Other Company Project',
+            description='',
+            location='',
+            developer='',
+            starting_price=0,
+            yield_percentage=0,
+            project_type=Project.ProjectType.RESIDENTIAL,
+            created_by=other_admin,
+        )
+
+        list_response = self.client.get('/api/projects/development_portfolio/')
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_titles = [project['title'] for project in list_response.data['results']]
+        self.assertCountEqual(
+            listed_titles,
+            ['My Draft Project', 'Own Company UAE Project'],
+        )
 
 
 class PromotionTests(APITestCase):
@@ -185,7 +273,7 @@ class PromotionTests(APITestCase):
         end = now + timedelta(days=2)
 
         # Before promotion creation
-        res_detail_before = self.client.get(f'/api/projects/development_portfolio/{self.project.id}/')
+        res_detail_before = self.client.get(f'/api/velopment_portfolio/{self.project.id}/')
         self.assertEqual(res_detail_before.status_code, status.HTTP_200_OK)
         self.assertFalse(res_detail_before.data['has_active_promotion'])
         self.assertIsNone(res_detail_before.data['active_promotion_discount'])
@@ -201,13 +289,13 @@ class PromotionTests(APITestCase):
         promo.sync_status()
 
         # Check detail API
-        res_detail = self.client.get(f'/api/projects/development_portfolio/{self.project.id}/')
+        res_detail = self.client.get(f'/api/velopment_portfolio/{self.project.id}/')
         self.assertEqual(res_detail.status_code, status.HTTP_200_OK)
         self.assertTrue(res_detail.data['has_active_promotion'])
         self.assertEqual(res_detail.data['active_promotion_discount'], 25)
 
         # Check list API
-        res_list = self.client.get('/api/projects/development_portfolio/')
+        res_list = self.client.get('/api/velopment_portfolio/')
         self.assertEqual(res_list.status_code, status.HTTP_200_OK)
         project_data = next(item for item in res_list.data['results'] if item['id'] == self.project.id)
         self.assertTrue(project_data['has_active_promotion'])

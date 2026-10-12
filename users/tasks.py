@@ -1,6 +1,7 @@
 import io
 import csv
 import logging
+from urllib.parse import urlparse
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
@@ -115,6 +116,110 @@ def send_superadmin_created_account_email(user, plain_password, created_by):
     )
     msg.attach_alternative(html_body, "text/html")
     msg.send(fail_silently=False)
+
+
+@shared_task(bind=True)
+def scrape_company_website_task(self, company_id: int, website: str):
+    """Fetch a company website, extract project cards and detail pages, and store the structured result."""
+    from users.models import Company
+    from users.website_scraper import scrape_company_website
+    from projects.models import Project
+
+    logger.info('scrape_company_website_task started: company_id=%s website=%s', company_id, website)
+
+    company = Company.objects.filter(pk=company_id).first()
+    if company is None:
+        logger.warning('scrape_company_website_task: company not found for company_id=%s', company_id)
+        return {'status': 'company_not_found', 'projects': []}
+
+    normalized_website = (website or company.website or '').strip().strip('"\'')
+    if normalized_website and not normalized_website.startswith(('https://', 'http://')):
+        normalized_website = f'https://{normalized_website}'
+    parsed_website = urlparse(normalized_website)
+    if parsed_website.scheme not in ('http', 'https') or not parsed_website.netloc:
+        logger.warning('scrape_company_website_task: missing website for company_id=%s', company_id)
+        company.website_scrape_status = 'empty'
+        company.save(update_fields=['website_scrape_status'])
+        return {'status': 'missing_website', 'projects': []}
+
+    report = scrape_company_website(normalized_website)
+    company_admin = company.users.filter(role='company_admin').order_by('pk').first()
+    project_creator = company_admin or company.users.order_by('pk').first()
+    saved_project_ids = []
+    seen_source_urls = set()
+
+    for scraped_project in report.get('projects', []):
+        if not isinstance(scraped_project, dict):
+            continue
+
+        title = scraped_project.get('name') or scraped_project.get('title')
+        source_url = scraped_project.get('detail_page_url') or scraped_project.get('url')
+        if not isinstance(title, str) or not isinstance(source_url, str):
+            continue
+
+        title = title.strip()[:255]
+        source_url = source_url.strip()
+        parsed_source_url = urlparse(source_url)
+        if (
+            not title
+            or parsed_source_url.scheme not in ('http', 'https')
+            or not parsed_source_url.netloc
+            or source_url in seen_source_urls
+        ):
+            continue
+
+        seen_source_urls.add(source_url)
+        project = Project.objects.filter(
+            visible_to_companies=company,
+            source_url=source_url,
+        ).first()
+        image_url = scraped_project.get('image_url')
+
+        if project is None:
+            project = Project.objects.create(
+                title=title,
+                source_url=source_url,
+                description='',
+                location='',
+                developer='',
+                starting_price=0,
+                yield_percentage=0,
+                project_type=Project.ProjectType.RESIDENTIAL,
+                status=Project.Status.PLANNED,
+                project_status=Project.ProjectStatus.DRAFT,
+                created_by=project_creator,
+            )
+        else:
+            fields_to_update = []
+            if project.title != title:
+                project.title = title
+                fields_to_update.append('title')
+            if fields_to_update:
+                project.save(update_fields=fields_to_update)
+
+        project.visible_to_companies.add(company)
+        if isinstance(image_url, str) and image_url.startswith(('http://', 'https://')):
+            from projects.tasks import import_scraped_proposal_image_task
+
+            try:
+                image_task = import_scraped_proposal_image_task.delay(project.pk, image_url)
+                scraped_project['exterior_image_task_id'] = image_task.id
+            except Exception:
+                logger.exception(
+                    'Failed to queue exterior image import for project_id=%s',
+                    project.pk,
+                )
+        scraped_project['project_id'] = project.pk
+        saved_project_ids.append(project.pk)
+
+    report['project_ids'] = saved_project_ids
+    report['projects_created_or_updated'] = len(saved_project_ids)
+    company.website = normalized_website
+    company.website_data = report
+    company.website_scrape_status = 'completed' if report.get('projects') else 'empty'
+    company.save(update_fields=['website', 'website_data', 'website_scrape_status'])
+    logger.info('scrape_company_website_task finished: company_id=%s status=%s projects=%s', company_id, report.get('status'), len(report.get('projects', [])))
+    return report
 
 
 @shared_task(bind=True)

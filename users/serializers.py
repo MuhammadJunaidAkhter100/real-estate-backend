@@ -130,8 +130,8 @@ class CompanyAdminCreateSerializer(serializers.Serializer):
     last_name = serializers.CharField(max_length=150)
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
+        # Allow re-use of an existing admin so the same person can be attached to
+        # a newly created company without creating duplicate user accounts.
         return value
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
@@ -141,10 +141,11 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
         required=False,
         default=list,
     )
+    website = serializers.URLField(required=False, allow_blank=True, default='')
 
     class Meta:
         model = Company
-        fields = ['id', 'name', 'operating_countries', 'admin', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'phone', 'operating_countries', 'website', 'admin', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_operating_countries(self, value):
@@ -153,27 +154,46 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         admin_data = validated_data.pop('admin')
+        website = validated_data.pop('website', '')
 
         # Create company
         company = Company.objects.create(**validated_data)
+        if website:
+            company.website = website
+            company.save(update_fields=['website'])
+            from users.tasks import scrape_company_website_task
+            transaction.on_commit(
+                lambda: scrape_company_website_task.delay(company.pk, company.website)
+            )
 
-        # Generate password for the admin
-        password = generate_password()
+        admin_user = User.objects.filter(email=admin_data['email']).first()
+        password = None
 
-        # Create company admin user
-        admin_user = User(
-            email=admin_data['email'],
-            first_name=admin_data['first_name'],
-            last_name=admin_data['last_name'],
-            role=User.Role.COMPANY_ADMIN,
-            status=User.Status.ACTIVE,
-            countries=company.operating_countries,  # default to company countries
-            company=company,
-        )
-        admin_user.set_password(password)
-        admin_user.save()
+        if admin_user is None:
+            # New admin user: create a fresh account and email them the auto-generated password.
+            password = generate_password()
+            admin_user = User(
+                email=admin_data['email'],
+                first_name=admin_data['first_name'],
+                last_name=admin_data['last_name'],
+                role=User.Role.COMPANY_ADMIN,
+                status=User.Status.ACTIVE,
+                countries=company.operating_countries,
+                company=company,
+            )
+            admin_user.set_password(password)
+            admin_user.save()
+        else:
+            # Reuse existing admin account for the new company in the current schema.
+            admin_user.first_name = admin_data['first_name']
+            admin_user.last_name = admin_data['last_name']
+            admin_user.role = User.Role.COMPANY_ADMIN
+            admin_user.status = User.Status.ACTIVE
+            admin_user.company = company
+            admin_user.countries = list(company.operating_countries)
+            admin_user.save(update_fields=['first_name', 'last_name', 'role', 'status', 'company', 'countries'])
 
-        # Attach for view to email
+        # Attach for view to email if a new password was generated.
         company._admin_user = admin_user
         company._admin_plain_password = password
 
@@ -193,7 +213,10 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Company
-        fields = ['id', 'name', 'operating_countries', 'company_admin', 'created_at', 'updated_at']
+        fields = [
+            'id', 'name', 'phone', 'operating_countries', 'website', 'website_data',
+            'website_scrape_status', 'company_admin', 'created_at', 'updated_at'
+        ]
 
     def get_company_admin(self, obj):
         company_admin = obj.users.filter(role=User.Role.COMPANY_ADMIN).first()
@@ -233,11 +256,13 @@ class CompanyUpdateSerializer(serializers.ModelSerializer):
         child=serializers.CharField(),
         required=False,
     )
+    website = serializers.URLField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=32)
     admin = CompanyAdminUpdateSerializer(required=False)
 
     class Meta:
         model = Company
-        fields = ['name', 'operating_countries', 'admin']
+        fields = ['name', 'phone', 'operating_countries', 'website', 'admin']
 
     def validate_operating_countries(self, value):
         return validate_countries(value)
@@ -581,7 +606,9 @@ class UserManagementSerializer(serializers.ModelSerializer):
                 PlanLimitsService.for_company(company).assert_can_add('users')
                 if validated_data.get('role') == User.Role.TEAM_MANAGER:
                     PlanLimitsService.for_company(company).assert_can_add('team_managers')
-            return super().create(validated_data)
+            user = super().create(validated_data)
+
+        return user
 
     def update(self, instance, validated_data):
         from billing.services import PlanLimitsService
@@ -599,7 +626,10 @@ class UserManagementSerializer(serializers.ModelSerializer):
                 PlanLimitsService.for_company(instance.company).assert_can_add(
                     'team_managers'
                 )
-        return super().update(instance, validated_data)
+
+        user = super().update(instance, validated_data)
+
+        return user
 
 class CompanyAutocompleteSerializer(serializers.ModelSerializer):
     class Meta:

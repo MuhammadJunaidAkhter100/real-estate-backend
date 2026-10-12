@@ -737,6 +737,7 @@ class AdminCompanyViewSet(viewsets.ModelViewSet):
         },
         operation_description=(
             "Create a company and its first admin.\n\n"
+            "- `phone` is an optional company contact number and accepts international formats.\n"
             "- `admin.email`, `admin.first_name`, `admin.last_name` are required.\n"
             "- Admin is created with role `company_admin`, `status=active`.\n"
             "- A secure password is auto-generated and emailed to the admin.\n"
@@ -749,12 +750,14 @@ class AdminCompanyViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         company = serializer.save()
 
-        # Email credentials to the newly created admin
-        send_superadmin_created_account_email(
-            company._admin_user,
-            company._admin_plain_password,
-            self.request.user
-        )
+        # Email credentials to the newly created admin. Reused admins already have
+        # an account and do not need a brand-new password email.
+        if company._admin_plain_password:
+            send_superadmin_created_account_email(
+                company._admin_user,
+                company._admin_plain_password,
+                self.request.user
+            )
 
         return Response(
             CompanyDetailSerializer(company).data,
@@ -764,7 +767,7 @@ class AdminCompanyViewSet(viewsets.ModelViewSet):
     @swagger_auto_schema(
         request_body=CompanyUpdateSerializer,
         responses={200: CompanyDetailSerializer, 400: "Validation error"},
-        operation_description="Update company name or operating countries. Superadmin only.",
+        operation_description="Update company details, including its optional phone number. Superadmin only.",
         tags=['Companies (managed by Super Admin)'],
     )
     def partial_update(self, request, *args, **kwargs):
@@ -2328,4 +2331,4 @@ class LeadViewSet(viewsets.ModelViewSet):
             'currency': user_currency,
             'recent_transactions': transactions_data,
             'leads': transactions_data,
-        })
+        })

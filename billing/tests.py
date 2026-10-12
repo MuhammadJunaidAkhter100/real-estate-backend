@@ -171,6 +171,19 @@ class RegisterCompanyTests(TestCase):
         self.assertIn('refresh', response.data)
         self.assertNotIn('checkoutUrl', response.data)
 
+    def test_signup_accepts_country_outside_legacy_allowlist(self):
+        payload = dict(BASIC_SIGNUP)
+        payload.update({
+            'countries': ['Afghanistan'],
+            'email': 'afghanistan@sunrise.test',
+        })
+
+        response = self.client.post(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        company = Company.objects.get(name='Sunrise Realty')
+        self.assertEqual(company.operating_countries, ['Afghanistan'])
+
     def test_professional_signup_is_pending_and_returns_checkout_url(self):
         customer_id = 'cus_test_123'
         with patch('billing.views.stripe_client.create_customer') as create_customer, \

@@ -1,4 +1,7 @@
+import json
 from datetime import timedelta
+from unittest.mock import MagicMock, patch
+
 from django.core import mail
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -9,6 +12,55 @@ from users.models import Company, Lead, Task
 from users.tasks import check_and_update_task_expirations
 
 User = get_user_model()
+
+
+class CompanyCreationTestCase(TestCase):
+    def test_reuses_existing_admin_for_new_company(self):
+        from users.serializers import CompanyCreateSerializer
+        from users.serializers import CompanyDetailSerializer
+
+        existing_company = Company.objects.create(name='Existing Company', website='https://example.com')
+        existing_admin = User.objects.create_user(
+            email='admin@example.com',
+            first_name='Existing',
+            last_name='Admin',
+            password='password123',
+            company=existing_company,
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+            countries=['UAE'],
+        )
+
+        payload = {
+            'name': 'New Company',
+            'phone': '+97144398500',
+            'operating_countries': ['UAE'],
+            'website': 'https://legacyinvestmentconsultancy.com/',
+            'admin': {
+                'email': 'admin@example.com',
+                'first_name': 'Existing',
+                'last_name': 'Admin',
+            },
+        }
+
+        serializer = CompanyCreateSerializer(data=payload)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        company = serializer.save()
+
+        self.assertEqual(User.objects.filter(email='admin@example.com').count(), 1)
+        self.assertEqual(company.phone, '+97144398500')
+        self.assertEqual(CompanyDetailSerializer(company).data['phone'], '+97144398500')
+        self.assertEqual(company.users.get(email='admin@example.com').company_id, company.id)
+        self.assertEqual(company.users.get(email='admin@example.com').role, User.Role.COMPANY_ADMIN)
+
+    def test_manage_users_serializer_does_not_expose_company_website(self):
+        from users.serializers import UserManagementSerializer
+
+        serializer = UserManagementSerializer()
+
+        self.assertNotIn('website', serializer.fields)
+        self.assertNotIn('company_website', serializer.fields)
 
 
 class TaskExpirationTestCase(TestCase):
@@ -256,7 +308,6 @@ class CommissionTestCase(TestCase):
         self.assertEqual(res.data['role'], 'company_admin')
         self.assertEqual(len(res.data['latest_commissions']), 1)
         item = res.data['latest_commissions'][0]
-        # Company commission is 90% = 405,000
         self.assertEqual(item['amount'], 405000.0)
         self.assertEqual(item['agent_name'], 'Agent Smith')
 
@@ -276,7 +327,6 @@ class CommissionTestCase(TestCase):
         self.assertEqual(item['company_name'], 'Acme Corp')
 
     def test_unassigned_lead_excluded_from_commissions(self):
-        # Create an unassigned won lead in the same company
         unassigned_lead = Lead.objects.create(
             name='Unassigned Lead',
             email='unassigned@example.com',
@@ -286,7 +336,6 @@ class CommissionTestCase(TestCase):
             status=Lead.Status.CONVERTED_WON,
             estimated_budget=173000.0,
         )
-        # Authenticate as company admin
         admin_user = User.objects.create_user(
             email='admin_unassigned@example.com',
             first_name='Admin',
@@ -297,18 +346,270 @@ class CommissionTestCase(TestCase):
         )
         self.client.force_authenticate(user=admin_user)
 
-        # Check latest commissions: must not include unassigned lead
         res_latest = self.client.get('/api/users/commissions/latest/?currency=USD')
         self.assertEqual(res_latest.status_code, 200)
         lead_ids = [c['lead_id'] for c in res_latest.data['latest_commissions']]
         self.assertNotIn(unassigned_lead.id, lead_ids)
 
-        # Check analytics: total_deals_won should only be 1 (assigned lead), not 2
         res_analytics = self.client.get('/api/users/commissions/analytics/?timeframe=1Y&currency=USD')
         self.assertEqual(res_analytics.status_code, 200)
         self.assertEqual(res_analytics.data['summary']['total_deals_won'], 1)
         self.assertEqual(res_analytics.data['summary']['total_sales'], 450000.0)
 
+
+class WebsiteScraperTestCase(TestCase):
+    def test_extract_real_estate_projects_from_html(self):
+        from users.website_scraper import extract_projects_from_html
+
+        html = '''
+        <html>
+            <body>
+                <div class="project-card">
+                    <a href="/projects/harbor-view">
+                        <img src="https://example.com/images/harbor.jpg" alt="Harbor View" />
+                    </a>
+                    <h3>Harbor View</h3>
+                    <p>Waterfront living in a prime city location.</p>
+                </div>
+                <div class="project-card">
+                    <a href="https://example.com/projects/skyline-residences">
+                        <img src="https://example.com/images/skyline.jpg" alt="Skyline Residences" />
+                    </a>
+                    <h3>Skyline Residences</h3>
+                    <p>Luxury residences with panoramic views.</p>
+                </div>
+            </body>
+        </html>
+        '''
+
+        project_cards = extract_projects_from_html(html, 'https://example.com')
+
+        self.assertEqual(len(project_cards), 2)
+        self.assertEqual(project_cards[0]['title'], 'Harbor View')
+        self.assertEqual(project_cards[0]['url'], 'https://example.com/projects/harbor-view')
+        self.assertEqual(project_cards[0]['image'], 'https://example.com/images/harbor.jpg')
+        self.assertIn('Waterfront', project_cards[0]['description'])
+
+    def test_normalize_website_url(self):
+        from users.website_scraper import normalize_website_url
+
+        self.assertEqual(
+            normalize_website_url('https://legacyinvestmentconsultancy.com'),
+            'https://legacyinvestmentconsultancy.com'
+        )
+        self.assertEqual(
+            normalize_website_url('legacyinvestmentconsultancy.com'),
+            'https://legacyinvestmentconsultancy.com'
+        )
+
+    @patch('users.website_scraper.OpenAI')
+    def test_scrape_company_website_uses_ai_for_real_estate_pages(self, mock_openai):
+        from users.website_scraper import scrape_company_website
+
+        class DummyResponse:
+            def __init__(self, payload):
+                self.choices = [type('Choice', (), {'message': type('Message', (), {'content': json.dumps(payload)})()})()]
+
+        mock_openai.return_value.chat.completions.create.return_value = DummyResponse({
+            'is_real_estate_project': True,
+            'title': 'Harbor View',
+            'developer': 'Harbor Developments',
+            'location': 'Dubai',
+            'description': 'Luxury waterfront apartments',
+            'status': 'Off plan',
+            'price_from': 'AED 1.2M',
+            'bedrooms': '2 - 3 bedrooms',
+            'image_url': 'https://example.com/harbor.jpg',
+            'project_type': 'Apartments',
+        })
+
+        with patch('users.website_scraper.requests.get') as mock_get:
+            mock_get.return_value.text = '''
+                <html>
+                    <body>
+                        <h1>Harbor View</h1>
+                        <p>Luxury apartments and waterfront living in Dubai.</p>
+                        <a href="/projects/harbor-view">View Details</a>
+                    </body>
+                </html>
+            '''
+            mock_get.return_value.raise_for_status.return_value = None
+
+            result = scrape_company_website('https://example.com')
+
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(result['projects'][0]['title'], 'Harbor View')
+        self.assertEqual(result['projects'][0]['ai_structured_data']['developer'], 'Harbor Developments')
+
+    @patch('users.website_scraper.OpenAI')
+    def test_scrape_company_website_uses_ai_to_select_homepage_project_cards(self, mock_openai):
+        from users.website_scraper import scrape_company_website
+
+        class DummyResponse:
+            def __init__(self, payload):
+                self.choices = [type('Choice', (), {'message': type('Message', (), {'content': json.dumps(payload)})()})()]
+
+        mock_openai.return_value.chat.completions.create.return_value = DummyResponse({
+            'selected': [1]
+        })
+
+        homepage_html = '''
+            <html>
+                <body>
+                    <div class="project-card">
+                        <a href="/projects/alpha">Alpha Residences</a>
+                    </div>
+                    <div class="project-card">
+                        <a href="/projects/beta">Beta Blog</a>
+                    </div>
+                    <div class="project-card">
+                        <a href="/projects/gamma">Gamma Villas</a>
+                    </div>
+                </body>
+            </html>
+        '''
+
+        detail_html = '''
+            <html>
+                <body>
+                    <h1>Beta Blog</h1>
+                    <p>Luxury villa community with apartments and residences for sale in Dubai.</p>
+                </body>
+            </html>
+        '''
+
+        with patch('users.website_scraper.requests.get') as mock_get:
+            mock_get.side_effect = [
+                MagicMock(text=homepage_html, raise_for_status=lambda: None),
+                MagicMock(text=detail_html, raise_for_status=lambda: None),
+            ]
+
+            result = scrape_company_website('https://example.com')
+
+        self.assertEqual(len(result['projects']), 1)
+        self.assertEqual(result['projects'][0]['title'], 'Beta Blog')
+        homepage_prompt = mock_openai.return_value.chat.completions.create.call_args_list[0].kwargs['messages'][1]['content']
+        self.assertIn('Alpha Residences [URL: https://example.com/projects/alpha]', homepage_prompt)
+
+    def test_scrape_company_website_returns_empty_when_no_project_cards_are_found(self):
+        from users.website_scraper import scrape_company_website
+
+        with patch('users.website_scraper.requests.get') as mock_get:
+            mock_get.return_value.text = '<html><body><h1>Welcome to Our Blog</h1><p>We write about travel and food.</p></body></html>'
+            mock_get.return_value.raise_for_status.return_value = None
+
+            result = scrape_company_website('https://example.com')
+
+        self.assertEqual(result['status'], 'empty')
+        self.assertEqual(result['projects'], [])
+
+
+class ScrapedProjectCreationTestCase(TestCase):
+    @patch('projects.tasks.import_scraped_proposal_image_task.delay')
+    @patch('users.website_scraper.scrape_company_website')
+    def test_scrape_task_creates_company_visible_draft_projects_idempotently(self, mock_scrape, mock_image_task):
+        from projects.models import Project
+        from users.tasks import scrape_company_website_task
+
+        company = Company.objects.create(
+            name='Legacy Investment Consultancy',
+            website='https://legacyinvestmentconsultancy.com/',
+        )
+        admin = User.objects.create_user(
+            email='legacy-admin@example.com',
+            first_name='Legacy',
+            last_name='Admin',
+            password='password123',
+            company=company,
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+        )
+        mock_scrape.return_value = {
+            'website': company.website,
+            'status': 'completed',
+            'projects': [
+                {
+                    'name': 'London House',
+                    'detail_page_url': 'https://legacyinvestmentconsultancy.com/developments/london-house/',
+                    'image_url': 'https://legacyinvestmentconsultancy.com/img/london-house.jpg',
+                },
+            ],
+            'total_projects': 1,
+        }
+        mock_image_task.return_value.id = 'image-import-task-id'
+
+        first_report = scrape_company_website_task.run(company.pk, company.website)
+        second_report = scrape_company_website_task.run(company.pk, company.website)
+
+        self.assertEqual(Project.objects.filter(source_url__contains='/london-house/').count(), 1)
+        project = Project.objects.get(source_url__contains='/london-house/')
+        self.assertEqual(project.title, 'London House')
+        self.assertEqual(project.image, [])
+        self.assertEqual(project.project_status, Project.ProjectStatus.DRAFT)
+        self.assertEqual(project.created_by, admin)
+        self.assertTrue(project.visible_to_companies.filter(pk=company.pk).exists())
+        self.assertEqual(first_report['project_ids'], [project.pk])
+        self.assertEqual(second_report['project_ids'], [project.pk])
+        self.assertEqual(mock_image_task.call_count, 2)
+        mock_image_task.assert_called_with(
+            project.pk,
+            'https://legacyinvestmentconsultancy.com/img/london-house.jpg',
+        )
+
+    @patch('projects.tasks.default_storage.exists', return_value=False)
+    @patch('projects.tasks.default_storage.save')
+    @patch('projects.tasks.requests.get')
+    def test_scraped_image_is_saved_as_exterior_proposal_image(self, mock_get, mock_storage_save, mock_exists):
+        import hashlib
+
+        from projects.models import Project
+        from projects.tasks import import_scraped_proposal_image_task
+
+        company = Company.objects.create(name='Image Import Company')
+        creator = User.objects.create_user(
+            email='image-admin@example.com',
+            first_name='Image',
+            last_name='Admin',
+            password='password123',
+            company=company,
+            role=User.Role.COMPANY_ADMIN,
+        )
+        project = Project.objects.create(
+            title='London House',
+            description='',
+            location='',
+            developer='',
+            starting_price=0,
+            yield_percentage=0,
+            project_type=Project.ProjectType.RESIDENTIAL,
+            created_by=creator,
+        )
+        image_url = 'https://example.com/london-house.jpg'
+        image_hash = hashlib.sha256(image_url.encode('utf-8')).hexdigest()
+        expected_path = (
+            f'projects/{project.pk}_london_house/proposal_images/exterior/'
+            f'{image_hash}.jpg'
+        )
+        mock_storage_save.return_value = expected_path
+        mock_get.return_value.headers = {'Content-Type': 'image/jpeg'}
+        mock_get.return_value.content = b'image-bytes'
+        mock_get.return_value.raise_for_status.return_value = None
+
+        result = import_scraped_proposal_image_task.run(project.pk, image_url)
+        retry_result = import_scraped_proposal_image_task.run(project.pk, image_url)
+
+        project.refresh_from_db()
+        self.assertTrue(result['success'])
+        self.assertTrue(retry_result['success'])
+        self.assertEqual(retry_result['uploaded_count'], 0)
+        self.assertEqual(project.image, [])
+        self.assertEqual(
+            project.proposal_images['exterior'],
+            [expected_path],
+        )
+        mock_exists.assert_called_once()
+        mock_get.assert_called_once()
+        mock_storage_save.assert_called_once()
 
 
 

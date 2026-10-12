@@ -44,6 +44,16 @@ class IsCompanyProjectManager(BasePermission):
         )
 
 
+class IsSuperAdminOrCompanyProjectManager(IsCompanyProjectManager):
+    """Allow superadmins in addition to company-level project managers."""
+    message = "Only superadmins and company administrators can create or modify projects."
+
+    def has_permission(self, request, view):
+        if request.user and request.user.is_authenticated and request.user.is_superuser:
+            return True
+        return super().has_permission(request, view)
+
+
 class IsSuperAdminOrCompanyAdminOrTeamManager(BasePermission):
     """Blocks agents from accessing user management endpoints entirely."""
     message = "Agents are not permitted to access user management."

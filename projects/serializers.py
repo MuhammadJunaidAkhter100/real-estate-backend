@@ -213,7 +213,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            'id', 'title', 'associated_country', 'description', 'location', 'developer',
+            'id', 'title', 'source_url', 'associated_country', 'description', 'location', 'developer',
             'estimated_completion',
             'status', 'project_status', 'units', 'units_count', 'units_to_add',
             'starting_price', 'currency', 'yield_percentage',
@@ -226,7 +226,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'units', 'units_count', 'currency',
+            'id', 'source_url', 'units', 'units_count', 'currency',
             'has_active_promotion', 'active_promotion_discount', 'promotion_title', 'promotion_status',
             'image', 'proposal_images',
             'number_of_units', 'bed_1', 'bed_2', 'bed_3', 'studio',
@@ -237,13 +237,14 @@ class ProjectSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             'title': {'required': True},
-            'description': {'required': True},
-            'location': {'required': True},
-            'developer': {'required': True},
-            'status': {'required': True},
-            'starting_price': {'required': True},
-            'yield_percentage': {'required': True},
-            'project_type': {'required': True},
+            'description': {'required': False, 'allow_blank': True, 'default': ''},
+            'location': {'required': False, 'allow_blank': True, 'default': ''},
+            'developer': {'required': False, 'allow_blank': True, 'default': ''},
+            'status': {'required': False, 'default': Project.Status.PLANNED},
+            'starting_price': {'required': False, 'default': 0},
+            'yield_percentage': {'required': False, 'default': 0},
+            'project_type': {'required': False, 'default': Project.ProjectType.RESIDENTIAL},
+            'project_status': {'required': False, 'default': Project.ProjectStatus.DRAFT},
         }
 
     def to_representation(self, instance):

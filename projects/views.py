@@ -32,6 +32,7 @@ from users.permissions import (
     IsCompanyProjectManager,
     IsNotSuperAdmin,
     IsSuperAdmin,
+    IsSuperAdminOrCompanyProjectManager,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,13 +72,13 @@ _fact_checks_param = openapi.Parameter(
 
 _common_form_params = [
     openapi.Parameter('title', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True),
-    openapi.Parameter('description', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True),
-    openapi.Parameter('location', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True),
-    openapi.Parameter('developer', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True),
-    openapi.Parameter('status', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True, enum=['in_progress', 'ready', 'planned']),
-    openapi.Parameter('starting_price', openapi.IN_FORM, type=openapi.TYPE_NUMBER, required=True),
-    openapi.Parameter('yield_percentage', openapi.IN_FORM, type=openapi.TYPE_NUMBER, required=True),
-    openapi.Parameter('project_type', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True, enum=['residential', 'commercial', 'hospitality']),
+    openapi.Parameter('description', openapi.IN_FORM, type=openapi.TYPE_STRING, required=False),
+    openapi.Parameter('location', openapi.IN_FORM, type=openapi.TYPE_STRING, required=False),
+    openapi.Parameter('developer', openapi.IN_FORM, type=openapi.TYPE_STRING, required=False),
+    openapi.Parameter('status', openapi.IN_FORM, type=openapi.TYPE_STRING, required=False, enum=['in_progress', 'ready', 'planned']),
+    openapi.Parameter('starting_price', openapi.IN_FORM, type=openapi.TYPE_NUMBER, required=False),
+    openapi.Parameter('yield_percentage', openapi.IN_FORM, type=openapi.TYPE_NUMBER, required=False),
+    openapi.Parameter('project_type', openapi.IN_FORM, type=openapi.TYPE_STRING, required=False, enum=['residential', 'commercial', 'hospitality']),
     openapi.Parameter('property_category', openapi.IN_FORM, type=openapi.TYPE_STRING, required=False, description='e.g., Apartment, Villa, Studio'),
     openapi.Parameter('number_of_units', openapi.IN_FORM, type=openapi.TYPE_INTEGER, required=False),
     openapi.Parameter('bed_1', openapi.IN_FORM, type=openapi.TYPE_INTEGER, required=False),
@@ -93,7 +94,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         'promotions',
     ).all()
     serializer_class = ProjectSerializer
-    permission_classes = [permissions.IsAuthenticated, IsCompanyProjectManager]
+    permission_classes = [permissions.IsAuthenticated, IsSuperAdminOrCompanyProjectManager]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     http_method_names = ['get', 'post', 'patch', 'delete']
 
@@ -121,9 +122,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         # Country filter applies only to list-style views; retrieve/update/delete
         # must be able to access any project the user has permission to.
         if self.action in ('list', 'by_status', 'recent', 'by_budget'):
-            qs = apply_country_filter(qs, user)
+            if user.role != user.Role.COMPANY_ADMIN:
+                qs = apply_country_filter(qs, user)
             # Filter only live projects for listing views (except by_status which allows explicit status selection)
-            if self.action != 'by_status':
+            if self.action != 'by_status' and user.role != user.Role.COMPANY_ADMIN:
                 qs = qs.filter(project_status='live')
 
         return qs.order_by('-created_at')

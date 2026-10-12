@@ -34,6 +34,7 @@ class Project(models.Model):
         LIVE = 'live', 'Live'
 
     title = models.CharField(max_length=255)
+    source_url = models.URLField(max_length=2048, blank=True, default='')
     associated_country = models.CharField(max_length=100, blank=True, default='')
     description = models.TextField()
     location = models.CharField(max_length=255)

@@ -55,7 +55,11 @@ class Company(models.Model):
         ANNUAL = 'annual', 'Annual'
 
     name = models.CharField(max_length=255)
+    phone = models.CharField(max_length=32, blank=True, default='')
     operating_countries = models.JSONField(default=list, blank=True)
+    website = models.URLField(max_length=255, blank=True, default='')
+    website_data = models.JSONField(default=dict, blank=True)
+    website_scrape_status = models.CharField(max_length=30, blank=True, default='')
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
