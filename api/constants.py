@@ -12,6 +12,7 @@ COUNTRY_ALIASES = {
 }
 AVAILABLE_COUNTRIES = COUNTRY_NAMES + list(COUNTRY_ALIASES)
 COUNTRY_CODE_MAP = {country['name']: country['code'] for country in COUNTRY_DATA}
+COUNTRY_NAME_BY_CODE = {country['code']: country['name'] for country in COUNTRY_DATA}
 COUNTRY_DIAL_CODE_MAP = {country['name']: country['dialCode'] for country in COUNTRY_DATA}
 
 COUNTRY_CURRENCY_MAP = {

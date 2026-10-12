@@ -4,6 +4,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from api.constants import AVAILABLE_COUNTRIES, COUNTRY_ALIASES, COUNTRY_NAME_BY_CODE
 from projects.models import Project, Unit
 from users.models import Company, Lead, Task, Team
 from users.utils import generate_password
@@ -356,11 +357,33 @@ class MeUpdateSerializer(serializers.ModelSerializer):
         }
 
     def validate_current_country(self, value):
-        if value and value != "all" and value not in self.instance.countries:
+        if not value or value == 'all':
+            return value
+
+        country_name = COUNTRY_NAME_BY_CODE.get(value.upper(), value)
+        legacy_names = {canonical: alias for alias, canonical in COUNTRY_ALIASES.items()}
+        stored_value = legacy_names.get(country_name, country_name) if value.upper() in COUNTRY_NAME_BY_CODE else value
+
+        if self.instance.role == User.Role.SUPERADMIN:
+            if country_name not in AVAILABLE_COUNTRIES:
+                raise serializers.ValidationError(
+                    f"'{value}' is not a supported country or ISO country code."
+                )
+            return stored_value
+
+        allowed_countries = {
+            COUNTRY_NAME_BY_CODE.get(country.upper(), country)
+            for country in self.instance.countries
+        }
+        allowed_countries = {
+            COUNTRY_ALIASES.get(country, country)
+            for country in allowed_countries
+        }
+        if COUNTRY_ALIASES.get(country_name, country_name) not in allowed_countries:
             raise serializers.ValidationError(
                 f"'{value}' is not in your assigned countries: {self.instance.countries}"
             )
-        return value
+        return stored_value
 
 
 class UserAssignedLeadSerializer(serializers.ModelSerializer):

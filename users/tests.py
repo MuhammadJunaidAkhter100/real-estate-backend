@@ -63,6 +63,53 @@ class CompanyCreationTestCase(TestCase):
         self.assertNotIn('company_website', serializer.fields)
 
 
+class CurrentCountrySelectionTestCase(TestCase):
+    def test_superadmin_can_set_iso_country_code_outside_legacy_assignment(self):
+        from users.serializers import MeUpdateSerializer
+
+        superadmin = User.objects.create_superuser(
+            email='country-root@example.com',
+            password='password123',
+            first_name='Country',
+            last_name='Admin',
+        )
+        superadmin.countries = ['UAE', 'UK', 'Oman', 'Saudi Arabia', 'Indonesia']
+        superadmin.save(update_fields=['countries'])
+
+        serializer = MeUpdateSerializer(
+            superadmin,
+            data={'current_country': 'ZW'},
+            partial=True,
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        updated_user = serializer.save()
+        self.assertEqual(updated_user.current_country, 'Zimbabwe')
+
+    def test_regular_user_remains_limited_to_assigned_countries(self):
+        from users.serializers import MeUpdateSerializer
+
+        company = Company.objects.create(name='Country Restricted Company')
+        user = User.objects.create_user(
+            email='country-agent@example.com',
+            first_name='Country',
+            last_name='Agent',
+            password='password123',
+            company=company,
+            countries=['UK'],
+            role=User.Role.COMPANY_ADMIN,
+        )
+
+        serializer = MeUpdateSerializer(
+            user,
+            data={'current_country': 'ZW'},
+            partial=True,
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('current_country', serializer.errors)
+
+
 class TaskExpirationTestCase(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='Test Company')
