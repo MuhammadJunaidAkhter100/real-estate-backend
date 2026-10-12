@@ -3,6 +3,7 @@ import stripe
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -35,15 +36,16 @@ def _cancel_url():
 
 
 @billing_exempt
-class RegisterCompanyView(APIView):
+class RegisterCompanyView(GenericAPIView):
     """Public, rate-limited self-serve company signup."""
 
+    serializer_class = RegisterCompanySerializer
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
     throttle_classes = [RegisterCompanyThrottle]
 
     def post(self, request):
-        serializer = RegisterCompanySerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         try:
             serializer.is_valid(raise_exception=True)
         except EmailAlreadyRegistered:

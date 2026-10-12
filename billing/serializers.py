@@ -19,12 +19,14 @@ class CompanyNameTaken(Exception):
 class RegisterCompanySerializer(serializers.Serializer):
     """Public self-serve company signup.
 
-    Strictly whitelisted: any key outside the eight fields below is rejected
+    Strictly whitelisted: any key outside the allowed fields below is rejected
     outright, so a tampered body carrying `status`, `role`, `companyId` or a
     Stripe price ID can never reach the ORM.
     """
 
     company_name = serializers.CharField(max_length=255, trim_whitespace=True)
+    phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    website = serializers.URLField(max_length=255, required=False, allow_blank=True)
     countries = serializers.ListField(
         child=serializers.ChoiceField(choices=list(AVAILABLE_COUNTRIES)),
         allow_empty=False,
@@ -89,6 +91,8 @@ class RegisterCompanySerializer(serializers.Serializer):
         with transaction.atomic():
             company = Company.objects.create(
                 name=validated_data['company_name'],
+                phone=validated_data.get('phone', ''),
+                website=validated_data.get('website', ''),
                 operating_countries=list(validated_data['countries']),
                 plan=plan,
                 billing_interval=validated_data['interval'],
@@ -110,6 +114,16 @@ class RegisterCompanySerializer(serializers.Serializer):
                 countries=list(validated_data['countries']),
                 company=company,
             )
+
+            if company.website:
+                from users.tasks import scrape_company_website_task
+
+                transaction.on_commit(
+                    lambda: scrape_company_website_task.delay(
+                        company.pk,
+                        company.website,
+                    )
+                )
         return company, admin_user
 
 

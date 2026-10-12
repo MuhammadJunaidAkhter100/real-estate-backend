@@ -12,6 +12,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from billing.models import CreditCharge, ProcessedStripeEvent, UsageCounter
+from billing.serializers import RegisterCompanySerializer
+from billing.views import RegisterCompanyView
 from users.models import Company, User
 
 BASIC_SIGNUP = {
@@ -156,6 +158,10 @@ class RegisterCompanyTests(TestCase):
 
         cache.clear()
 
+    def test_view_exposes_serializer_for_browsable_api_form(self):
+        view = RegisterCompanyView()
+        self.assertIs(view.get_serializer_class(), RegisterCompanySerializer)
+
     def test_basic_signup_activates_and_returns_tokens(self):
         response = self.client.post(self.url, BASIC_SIGNUP, format='json')
         self.assertEqual(response.status_code, 201, response.data)
@@ -183,6 +189,24 @@ class RegisterCompanyTests(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         company = Company.objects.get(name='Sunrise Realty')
         self.assertEqual(company.operating_countries, ['Afghanistan'])
+
+    @patch('users.tasks.scrape_company_website_task.delay')
+    def test_signup_saves_optional_company_phone_and_website_without_auth(self, mock_scrape):
+        payload = dict(
+            BASIC_SIGNUP,
+            email='contact@sunrise.test',
+            phone='+97144398500',
+            website='https://sunrise.example',
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        company = Company.objects.get(name='Sunrise Realty')
+        self.assertEqual(company.phone, '+97144398500')
+        self.assertEqual(company.website, 'https://sunrise.example')
+        mock_scrape.assert_called_once_with(company.pk, company.website)
 
     def test_professional_signup_is_pending_and_returns_checkout_url(self):
         customer_id = 'cus_test_123'
