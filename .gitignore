@@ -143,7 +143,6 @@ notes.txt
 # Claude Code
 CLAUDE.md
 .claude/
-*.csv
 app.py
 axiyon-backend-staging-3.pem
 server.ppk
