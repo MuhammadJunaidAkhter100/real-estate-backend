@@ -30,7 +30,9 @@ class IsSuperAdminOrReadOnly(BasePermission):
 
 
 class IsCompanyProjectManager(BasePermission):
-    """Allow project writes only to company-level administrators."""
+    """Projects are owned by companies: any signed-in user may read, but only
+    company-level administrators may write. Team managers, agents and
+    superadmins get a 403 on every write."""
     message = "Only company administrators can create or modify projects."
 
     def has_permission(self, request, view):
@@ -42,16 +44,6 @@ class IsCompanyProjectManager(BasePermission):
             and request.user.is_authenticated
             and request.user.role in ['axiyon_admin', 'company_admin']
         )
-
-
-class IsSuperAdminOrCompanyProjectManager(IsCompanyProjectManager):
-    """Allow superadmins in addition to company-level project managers."""
-    message = "Only superadmins and company administrators can create or modify projects."
-
-    def has_permission(self, request, view):
-        if request.user and request.user.is_authenticated and request.user.is_superuser:
-            return True
-        return super().has_permission(request, view)
 
 
 class IsSuperAdminOrCompanyAdminOrTeamManager(BasePermission):

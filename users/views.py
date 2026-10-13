@@ -28,6 +28,7 @@ from users.filters import LeadFilter, TaskFilter, UserFilter
 from users.models import Company, Lead, PasswordResetOTP, Task, Team
 from users.pagination import CustomPagination
 from users.permissions import IsSuperAdminOrCompanyAdminOrTeamManager, IsCompanyAdminOrTeamManager, IsSuperAdmin, IsNotSuperAdmin
+from projects.access import visible_projects
 from projects.models import Project, Unit
 from projects.serializers import UserProjectDetailSerializer, UserProjectSerializer
 from users.serializers import (
@@ -136,8 +137,9 @@ class DashboardSummaryView(APIView):
             tasks_qs = Task.objects.filter(created_by=user)
             proposals_qs = GeneratedProposal.objects.filter(generated_by=user)
 
-        # Same for all roles
-        projects_qs = Project.objects.all()
+        # Projects belong to companies, so the counters only cover the
+        # caller's own company (superadmin still sees every project).
+        projects_qs = visible_projects(user)
         calls_qs = calls_visible_to_user(user)
 
         leads_qs = apply_country_filter(leads_qs, user)
@@ -1176,7 +1178,7 @@ class UsersViewSet(viewsets.ModelViewSet):
     def user_projects(self, request, pk=None):
         user = self._get_target_user(pk)
 
-        qs = Project.objects.all()
+        qs = visible_projects(request.user)
         qs = self._filter_projects(qs, request)
         qs = apply_country_filter(qs, request.user)
         qs = qs.order_by('-created_at')
@@ -1206,7 +1208,7 @@ class UsersViewSet(viewsets.ModelViewSet):
     def user_project_detail(self, request, pk=None, project_id=None):
         user = self._get_target_user(pk)
 
-        project = Project.objects.filter(pk=project_id).first()
+        project = visible_projects(request.user).filter(pk=project_id).first()
         if not project:
             return Response(
                 {"detail": "Project not found."},

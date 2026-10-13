@@ -8,10 +8,23 @@ import json
 import re
 
 from api.constants import COUNTRY_CURRENCY_MAP
+from projects.access import visible_projects
 from projects.models import Project, ProjectAgentAssignment, ProjectDocument, Promotion, Unit
 from users.utils import get_exchange_rate
 
 User = get_user_model()
+
+
+class OwnProjectOnlyMixin:
+    """Limit the writable `project` field to projects the caller can see, so
+    another company's project id is rejected like one that does not exist."""
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get('request')
+        if request is not None and 'project' in fields:
+            fields['project'].queryset = visible_projects(request.user)
+        return fields
 
 
 def _build_image_urls(image_paths, request=None):
@@ -40,7 +53,7 @@ def _build_image_urls(image_paths, request=None):
     return urls
 
 
-class UnitSerializer(serializers.ModelSerializer):
+class UnitSerializer(OwnProjectOnlyMixin, serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
 
@@ -331,7 +344,7 @@ class UserProjectSerializer(serializers.ModelSerializer):
         return data
 
 
-class PromotionSerializer(serializers.ModelSerializer):
+class PromotionSerializer(OwnProjectOnlyMixin, serializers.ModelSerializer):
     project_title = serializers.CharField(source='project.title', read_only=True)
     created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
