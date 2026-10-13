@@ -15,6 +15,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from api.constants import COUNTRY_CURRENCY_MAP
 from api.utils import apply_country_filter
+from projects.access import visible_projects
 from projects.filters import ProjectFilter, PromotionFilter, UnitFilter
 from projects.models import Project, ProjectAgentAssignment, ProjectDocument, Promotion, Unit, project_image_upload_path
 from projects.serializers import (
@@ -32,7 +33,6 @@ from users.permissions import (
     IsCompanyProjectManager,
     IsNotSuperAdmin,
     IsSuperAdmin,
-    IsSuperAdminOrCompanyProjectManager,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         'promotions',
     ).all()
     serializer_class = ProjectSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSuperAdminOrCompanyProjectManager]
+    # Company admins write; team managers, agents and superadmins are read-only.
+    permission_classes = [permissions.IsAuthenticated, IsCompanyProjectManager]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     http_method_names = ['get', 'post', 'patch', 'delete']
 
@@ -112,12 +113,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if user.is_anonymous:
             return self.queryset.none()
 
-        if user.is_staff and user.is_superuser:
-            qs = self.queryset
-        elif user.company_id:
-            qs = self.queryset.filter(created_by__company_id=user.company_id)
-        else:
-            qs = self.queryset.none()
+        qs = visible_projects(user, self.queryset)
 
         # Country filter applies only to list-style views; retrieve/update/delete
         # must be able to access any project the user has permission to.
@@ -823,8 +819,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {'detail': 'project_id is required. Create a draft project first via POST /init_project/.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Looked up through the caller's own projects, so another company's
+        # project answers exactly like one that does not exist.
         try:
-            project = Project.objects.get(pk=int(project_id))
+            project = self.get_queryset().get(pk=int(project_id))
         except (Project.DoesNotExist, ValueError, TypeError):
             return Response(
                 {'detail': f'Project with id {project_id} not found.'},
@@ -932,7 +930,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if is_ready and not isinstance(result.result, Exception):
             task_result = result.result
             if isinstance(task_result, dict) and task_result.get('project_id'):
-                project = Project.objects.filter(pk=task_result['project_id']).first()
+                # A task id is not proof of ownership: only hand the project
+                # back if the caller could have fetched it anyway.
+                project = self.get_queryset().filter(pk=task_result['project_id']).first()
 
         payload = {
             'task_id': task_id,
@@ -1064,6 +1064,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer = AssignAgentsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        # The project is the caller's company's, so its agents must be too.
+        if any(
+            item['agent'].company_id != request.user.company_id
+            for item in serializer.validated_data['assignments']
+        ):
+            raise ValidationError(
+                {'assignments': 'Agents must belong to your company.'}
+            )
+
         assignments = []
         for item in serializer.validated_data['assignments']:
             assignment, _ = ProjectAgentAssignment.objects.update_or_create(
@@ -1156,14 +1165,9 @@ class UnitViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsCompanyProjectManager]
 
     def get_queryset(self):
-        user = self.request.user
-        if user.is_anonymous:
-            return self.queryset.none()
-        if user.is_staff and user.is_superuser:
-            return self.queryset
-        if user.company_id:
-            return self.queryset.filter(project__created_by__company_id=user.company_id)
-        return self.queryset.none()
+        return self.queryset.filter(
+            project__in=visible_projects(self.request.user),
+        )
     http_method_names = ['get', 'post', 'patch', 'delete']
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
@@ -1294,8 +1298,8 @@ class UnitViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'file is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            project = Project.objects.get(pk=project_id)
-        except Project.DoesNotExist:
+            project = visible_projects(request.user).get(pk=project_id)
+        except (Project.DoesNotExist, ValueError, TypeError):
             return Response({'detail': 'Project not found.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -1372,7 +1376,9 @@ class UnitViewSet(viewsets.ModelViewSet):
 class PromotionViewSet(viewsets.ModelViewSet):
     queryset = Promotion.objects.all()
     serializer_class = PromotionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    # Same rule as the projects they belong to: company admins write, everyone
+    # else in the company reads.
+    permission_classes = [permissions.IsAuthenticated, IsCompanyProjectManager]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = PromotionFilter
@@ -1383,7 +1389,9 @@ class PromotionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         Promotion.sync_all_promotions()
-        qs = super().get_queryset()
+        qs = super().get_queryset().filter(
+            project__in=visible_projects(self.request.user),
+        )
         project_id = self.request.query_params.get('project_id')
         if project_id:
             qs = qs.filter(project_id=project_id)
