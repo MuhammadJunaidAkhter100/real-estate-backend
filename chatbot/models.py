@@ -29,13 +29,21 @@ def _knowledge_base_upload_path(instance, filename):
 
 
 class KnowledgeBaseDocument(models.Model):
-    """A user-uploaded document whose text is extracted asynchronously."""
+    """A knowledge-base document whose text is extracted asynchronously.
+
+    Most are files a user uploaded. One per company can instead be built from
+    the company's own website (source="website").
+    """
 
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'
         PROCESSING = 'processing', 'Processing'
         COMPLETED = 'completed', 'Completed'
         FAILED = 'failed', 'Failed'
+
+    class Source(models.TextChoices):
+        UPLOAD = 'upload', 'Upload'
+        WEBSITE = 'website', 'Website'
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -47,6 +55,11 @@ class KnowledgeBaseDocument(models.Model):
     original_filename = models.CharField(max_length=255)
     file_type = models.CharField(max_length=10, blank=True, default='')
     associated_country = models.CharField(max_length=100, blank=True, default='')
+    source = models.CharField(
+        max_length=20, choices=Source.choices, default=Source.UPLOAD,
+    )
+    # The website a source="website" document was built from.
+    source_url = models.URLField(max_length=1000, blank=True, default='')
 
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING,

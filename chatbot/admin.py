@@ -13,7 +13,7 @@ class ChatSessionAdmin(admin.ModelAdmin):
 
 @admin.register(KnowledgeBaseDocument)
 class KnowledgeBaseDocumentAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'original_filename', 'file_type', 'associated_country', 'status', 'created_at')
-    list_filter = ('status', 'file_type', 'associated_country', 'created_at')
+    list_display = ('id', 'user', 'original_filename', 'file_type', 'source', 'associated_country', 'status', 'created_at')
+    list_filter = ('status', 'source', 'file_type', 'associated_country', 'created_at')
     search_fields = ('user__email', 'original_filename', 'task_id')
     readonly_fields = ('task_id', 'created_at', 'updated_at')

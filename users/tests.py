@@ -552,9 +552,10 @@ class WebsiteScraperTestCase(TestCase):
 
 
 class ScrapedProjectCreationTestCase(TestCase):
+    @patch('chatbot.tasks.import_company_website_knowledge.delay')
     @patch('projects.tasks.import_scraped_proposal_image_task.delay')
     @patch('users.website_scraper.scrape_company_website')
-    def test_scrape_task_creates_company_visible_draft_projects_idempotently(self, mock_scrape, mock_image_task):
+    def test_scrape_task_creates_company_visible_draft_projects_idempotently(self, mock_scrape, mock_image_task, mock_kb_import):
         from projects.models import Project
         from users.tasks import scrape_company_website_task
 

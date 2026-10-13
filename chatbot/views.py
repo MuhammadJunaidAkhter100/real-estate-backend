@@ -1,12 +1,14 @@
 import json
 import logging
 import os
+from datetime import timedelta
 
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,8 +16,14 @@ from rest_framework.views import APIView
 from chatbot.data_extraction import DataExtractor
 from chatbot.models import ChatSession, KnowledgeBaseDocument
 from chatbot.graph import stream_response, get_history
-from chatbot.tasks import extract_knowledge_base_document
+from chatbot.tasks import extract_knowledge_base_document, import_company_website_knowledge
+from chatbot.website_knowledge import (
+    normalize_website_url,
+    prepare_website_document,
+    website_document,
+)
 from billing.services import consume_credits, refund_credits
+from users.permissions import IsCompanyAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +262,18 @@ class ChatSessionDeleteView(APIView):
 
 # ── Knowledge base ──────────────────────────────────────────────────────────────
 
+# What the API returns for a knowledge-base document.
+KB_DOCUMENT_FIELDS = (
+    'id', 'original_filename', 'file_type', 'associated_country',
+    'hosted_url', 'status', 'error', 'task_id', 'source', 'source_url',
+    'created_at', 'updated_at',
+)
+
+# A website import left in pending/processing for longer than this (a worker
+# that died mid-run) no longer blocks starting a new one.
+WEBSITE_IMPORT_STALE_AFTER = timedelta(minutes=15)
+
+
 class KnowledgeBaseView(APIView):
     """
     Knowledge-base documents for the authenticated user.
@@ -276,8 +296,7 @@ class KnowledgeBaseView(APIView):
     )
     def get(self, request):
         docs = KnowledgeBaseDocument.objects.filter(user=request.user).values(
-            'id', 'original_filename', 'file_type', 'associated_country',
-            'hosted_url', 'status', 'error', 'task_id', 'created_at', 'updated_at',
+            *KB_DOCUMENT_FIELDS,
         )
         return Response(list(docs))
 
@@ -400,3 +419,142 @@ class KnowledgeBaseDeleteView(APIView):
             doc.file.delete(save=False)
         doc.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+def _website_payload(company, doc):
+    """The company's website and where its knowledge-base import stands."""
+    return {
+        'website': company.website,
+        'status': doc.status if doc else 'not_started',
+        'error': doc.error if doc else '',
+        'document': {name: getattr(doc, name) for name in KB_DOCUMENT_FIELDS} if doc else None,
+    }
+
+
+class KnowledgeBaseWebsiteView(APIView):
+    """
+    The company's own website as a knowledge-base document ("Website Data.txt").
+
+    GET  /api/chatbot/knowledge-base/website/  → the website and its import status
+    POST /api/chatbot/knowledge-base/website/  → read the website again
+
+    The website is read automatically when a company signs up with one. POST
+    lets a company admin add or change the address later, or retry a failed
+    import. The import runs in the background and replaces the previous
+    document.
+    """
+    permission_classes = [IsAuthenticated, IsCompanyAdmin]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
+    _response_schema = openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'website': openapi.Schema(type=openapi.TYPE_STRING),
+            'status': openapi.Schema(
+                type=openapi.TYPE_STRING,
+                enum=['not_started', 'pending', 'processing', 'completed', 'failed'],
+            ),
+            'error': openapi.Schema(type=openapi.TYPE_STRING),
+            'document': openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                description='Same shape as an item of GET /chatbot/knowledge-base/, or null.',
+            ),
+        },
+    )
+
+    @swagger_auto_schema(
+        tags=['Chatbot'],
+        operation_description=(
+            'Company admins only. Returns the company website and the status of '
+            'its knowledge-base import: not_started, pending, processing, '
+            'completed or failed.'
+        ),
+        responses={200: _response_schema},
+    )
+    def get(self, request):
+        company = getattr(request.user, 'company', None)
+        if company is None:
+            return Response(
+                {'detail': 'Your user account is not linked to a company.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(_website_payload(company, website_document(company)))
+
+    @swagger_auto_schema(
+        tags=['Chatbot'],
+        operation_description=(
+            'Company admins only. Reads the company website and stores its text '
+            'in the knowledge base as "Website Data.txt", replacing the previous '
+            'import. Send `website` to add or change the address; leave it out '
+            'to read the saved one again. Runs in the background: poll GET until '
+            'the status is completed or failed. Answers 409 while an import is '
+            'already running.'
+        ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'website': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Optional. For example https://example.com',
+                ),
+            },
+        ),
+        responses={
+            202: _response_schema,
+            400: 'Invalid or missing website',
+            409: 'Import already running',
+        },
+    )
+    def post(self, request):
+        company = getattr(request.user, 'company', None)
+        if company is None:
+            return Response(
+                {'detail': 'Your user account is not linked to a company.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw = request.data.get('website') if hasattr(request.data, 'get') else None
+        if raw in (None, ''):
+            website = normalize_website_url(company.website)
+            if not website:
+                return Response(
+                    {'website': ['Add your website address first.']},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            website = normalize_website_url(str(raw))
+            if not website or len(website) > 255:
+                return Response(
+                    {'website': ['Enter a valid website address.']},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        doc = website_document(company)
+        running = (
+            KnowledgeBaseDocument.Status.PENDING,
+            KnowledgeBaseDocument.Status.PROCESSING,
+        )
+        if (
+            doc is not None
+            and doc.status in running
+            and doc.updated_at > timezone.now() - WEBSITE_IMPORT_STALE_AFTER
+        ):
+            return Response(
+                {
+                    'detail': 'The website is already being imported.',
+                    **_website_payload(company, doc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if website != company.website:
+            company.website = website
+            company.save(update_fields=['website', 'updated_at'])
+
+        doc = prepare_website_document(company, website, owner=request.user)
+        async_result = import_company_website_knowledge.delay(
+            company.pk, website, request.user.pk)
+        KnowledgeBaseDocument.objects.filter(pk=doc.pk).update(
+            task_id=async_result.id or '')
+        doc.refresh_from_db()
+
+        return Response(_website_payload(company, doc), status=status.HTTP_202_ACCEPTED)

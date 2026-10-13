@@ -142,6 +142,16 @@ def scrape_company_website_task(self, company_id: int, website: str):
         company.save(update_fields=['website_scrape_status'])
         return {'status': 'missing_website', 'projects': []}
 
+    # The same website also feeds the knowledge base ("Website Data.txt").
+    # Queued as its own task so a problem there never stops the project import.
+    try:
+        from chatbot.tasks import import_company_website_knowledge
+
+        import_company_website_knowledge.delay(company.pk, normalized_website)
+    except Exception:
+        logger.exception(
+            'Failed to queue website knowledge import for company_id=%s', company_id)
+
     report = scrape_company_website(normalized_website)
     company_admin = company.users.filter(role='company_admin').order_by('pk').first()
     project_creator = company_admin or company.users.order_by('pk').first()

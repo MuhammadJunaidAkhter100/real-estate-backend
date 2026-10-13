@@ -6,7 +6,8 @@ from chatbot.views import (
     ChatSessionListView,
     ChatSessionDeleteView,
     KnowledgeBaseView,
-    KnowledgeBaseDeleteView
+    KnowledgeBaseDeleteView,
+    KnowledgeBaseWebsiteView,
 )
 
 urlpatterns = [
@@ -16,4 +17,5 @@ urlpatterns = [
     path('history/<int:session_id>/',       ChatHistoryView.as_view(),       name='chat-history'),
     path('knowledge-base/',                   KnowledgeBaseView.as_view(http_method_names=['get', 'post']), name='knowledge-base'),
     path('knowledge-base/<int:document_id>/', KnowledgeBaseDeleteView.as_view(http_method_names=['delete']),     name='knowledge-base-delete'),
+    path('knowledge-base/website/',           KnowledgeBaseWebsiteView.as_view(http_method_names=['get', 'post']), name='knowledge-base-website'),
 ]

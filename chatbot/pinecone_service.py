@@ -134,6 +134,20 @@ class PineconeService:
         except Exception as exc:  # noqa: BLE001
             raise PineconeServiceError(f"Failed to delete vectors: {exc}") from exc
 
+    def delete_document_chunks(self, document_id: int, start: int, stop: int) -> None:
+        """Delete chunks ``start`` .. ``stop - 1`` of a document by vector id.
+
+        For a document that was indexed again with fewer chunks than before:
+        ``upsert_document`` overwrites the chunks it writes, this removes the
+        leftover tail. Deleting by id works on every index type.
+        """
+        ids = [f"doc-{document_id}-{idx}" for idx in range(start, stop)]
+        try:
+            for begin in range(0, len(ids), UPSERT_BATCH):
+                self.index.delete(ids=ids[begin:begin + UPSERT_BATCH])
+        except Exception as exc:  # noqa: BLE001
+            raise PineconeServiceError(f"Failed to delete vectors: {exc}") from exc
+
     def upsert_project_document(
         self, document_id: int, text: str, metadata: dict | None = None,
     ) -> int:
