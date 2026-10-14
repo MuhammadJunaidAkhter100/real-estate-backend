@@ -16,7 +16,11 @@ from rest_framework.views import APIView
 from chatbot.data_extraction import DataExtractor
 from chatbot.models import ChatSession, KnowledgeBaseDocument
 from chatbot.graph import stream_response, get_history
-from chatbot.tasks import extract_knowledge_base_document, import_company_website_knowledge
+from chatbot.tasks import (
+    extract_knowledge_base_document,
+    fail_stalled_documents,
+    import_company_website_knowledge,
+)
 from chatbot.website_knowledge import (
     normalize_website_url,
     prepare_website_document,
@@ -295,10 +299,9 @@ class KnowledgeBaseView(APIView):
         responses={200: 'List of documents'},
     )
     def get(self, request):
-        docs = KnowledgeBaseDocument.objects.filter(user=request.user).values(
-            *KB_DOCUMENT_FIELDS,
-        )
-        return Response(list(docs))
+        documents = KnowledgeBaseDocument.objects.filter(user=request.user)
+        fail_stalled_documents(documents)
+        return Response(list(documents.values(*KB_DOCUMENT_FIELDS)))
 
     @swagger_auto_schema(
         tags=['Chatbot'],
@@ -477,7 +480,11 @@ class KnowledgeBaseWebsiteView(APIView):
                 {'detail': 'Your user account is not linked to a company.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return Response(_website_payload(company, website_document(company)))
+        doc = website_document(company)
+        if doc is not None and fail_stalled_documents(
+                KnowledgeBaseDocument.objects.filter(pk=doc.pk)):
+            doc.refresh_from_db()
+        return Response(_website_payload(company, doc))
 
     @swagger_auto_schema(
         tags=['Chatbot'],

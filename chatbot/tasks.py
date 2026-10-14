@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 import logging
+from datetime import timedelta
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.core.files.base import ContentFile
+from django.db.models import Q
+from django.utils import timezone
 from chatbot.pinecone_service import (CHUNK_OVERLAP, CHUNK_SIZE, PineconeService, PineconeServiceError)
 from chatbot.data_extraction import (DataExtractor,ExtractionError,UnsupportedFileType)
 from chatbot.models import KnowledgeBaseDocument
@@ -17,8 +21,51 @@ from chatbot.website_knowledge import (
 )
 logger = logging.getLogger(__name__)
 
+# One stuck call (OpenAI, Pinecone, a slow website) must not hold the only
+# worker slot for ever. The soft limit raises inside the task, which marks the
+# document failed; the hard limit kills the process a minute later.
+KB_TASK_SOFT_TIME_LIMIT = 10 * 60
+KB_TASK_TIME_LIMIT = KB_TASK_SOFT_TIME_LIMIT + 60
 
-@shared_task(bind=True, name="chatbot.extract_knowledge_base_document")
+# A worker killed mid-task (out of memory, a restart) never marks its document
+# failed, so it would show "processing" for ever. Past these ages the worker is
+# gone. Processing must stay above KB_TASK_TIME_LIMIT.
+KB_PROCESSING_STALLED_AFTER = timedelta(minutes=15)
+KB_PENDING_STALLED_AFTER = timedelta(hours=1)
+
+STALLED_ERROR = "Processing stopped before it finished. Please try again."
+TIMED_OUT_ERROR = "Processing took too long. Please try again."
+
+
+def fail_stalled_documents(documents) -> int:
+    """Mark the documents in `documents` whose worker is gone as failed.
+
+    Returns how many were marked.
+    """
+    now = timezone.now()
+    stalled = documents.filter(
+        Q(status=KnowledgeBaseDocument.Status.PROCESSING,
+          updated_at__lt=now - KB_PROCESSING_STALLED_AFTER)
+        | Q(status=KnowledgeBaseDocument.Status.PENDING,
+            updated_at__lt=now - KB_PENDING_STALLED_AFTER)
+    )
+    # Read first: on SQLite even an UPDATE that matches nothing takes the
+    # database write lock, and this runs on every knowledge-base list.
+    if not stalled.exists():
+        return 0
+    return stalled.update(
+        status=KnowledgeBaseDocument.Status.FAILED,
+        error=STALLED_ERROR,
+        updated_at=now,
+    )
+
+
+@shared_task(
+    bind=True,
+    name="chatbot.extract_knowledge_base_document",
+    soft_time_limit=KB_TASK_SOFT_TIME_LIMIT,
+    time_limit=KB_TASK_TIME_LIMIT,
+)
 def extract_knowledge_base_document(self, document_id: int):
     """
     Extract text from an uploaded knowledge-base document.
@@ -105,6 +152,12 @@ def extract_knowledge_base_document(self, document_id: int):
                 company.pk, "kb_document_extraction", receipt_id=receipt)
         logger.warning("KB extraction failed for doc %s: %s", document_id, exc)
         return {"success": False, "error": str(exc)}
+    except SoftTimeLimitExceeded:
+        doc.status = KnowledgeBaseDocument.Status.FAILED
+        doc.error = TIMED_OUT_ERROR
+        doc.save(update_fields=["status", "error", "updated_at"])
+        logger.warning("KB extraction timed out for doc %s", document_id)
+        return {"success": False, "error": TIMED_OUT_ERROR}
     except Exception as exc:  # noqa: BLE001
         doc.status = KnowledgeBaseDocument.Status.FAILED
         doc.error = str(exc)
@@ -113,7 +166,12 @@ def extract_knowledge_base_document(self, document_id: int):
         return {"success": False, "error": str(exc)}
 
 
-@shared_task(bind=True, name="chatbot.import_company_website_knowledge")
+@shared_task(
+    bind=True,
+    name="chatbot.import_company_website_knowledge",
+    soft_time_limit=KB_TASK_SOFT_TIME_LIMIT,
+    time_limit=KB_TASK_TIME_LIMIT,
+)
 def import_company_website_knowledge(self, company_id: int, website: str = "", requested_by_id: int | None = None):
     """
     Read a company's website and file its text in the knowledge base.
@@ -199,6 +257,12 @@ def import_company_website_knowledge(self, company_id: int, website: str = "", r
         doc.save(update_fields=["status", "error", "updated_at"])
         logger.warning("Website import failed for company %s: %s", company_id, exc)
         return {"success": False, "document_id": doc.pk, "error": str(exc)}
+    except SoftTimeLimitExceeded:
+        doc.status = KnowledgeBaseDocument.Status.FAILED
+        doc.error = TIMED_OUT_ERROR
+        doc.save(update_fields=["status", "error", "updated_at"])
+        logger.warning("Website import timed out for company %s", company_id)
+        return {"success": False, "document_id": doc.pk, "error": TIMED_OUT_ERROR}
     except Exception as exc:  # noqa: BLE001
         doc.status = KnowledgeBaseDocument.Status.FAILED
         doc.error = str(exc)

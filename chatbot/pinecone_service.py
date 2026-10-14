@@ -29,6 +29,10 @@ CHUNK_OVERLAP = 150
 EMBED_BATCH = 100
 UPSERT_BATCH = 100
 
+# The OpenAI client waits up to 10 minutes per request by default.
+OPENAI_TIMEOUT_SECONDS = 60
+OPENAI_MAX_RETRIES = 2
+
 
 class PineconeServiceError(Exception):
     """Raised when a Pinecone operation cannot be completed."""
@@ -74,7 +78,11 @@ class PineconeService:
         """Embed a list of texts with OpenAI, batching to limit round-trips."""
         from openai import OpenAI
 
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=OPENAI_TIMEOUT_SECONDS,
+            max_retries=OPENAI_MAX_RETRIES,
+        )
         vectors: list[list[float]] = []
         for start in range(0, len(texts), EMBED_BATCH):
             batch = texts[start:start + EMBED_BATCH]
