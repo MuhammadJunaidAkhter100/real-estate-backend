@@ -63,5 +63,14 @@ jobs:
             if systemctl cat daphne.service >/dev/null 2>&1; then
               sudo systemctl restart daphne
             fi
+            # The units this server really runs: the web (daphne) and the
+            # default-queue Celery worker. Neither picks up new code until it
+            # restarts.
+            if systemctl cat realestate-api.service >/dev/null 2>&1; then
+              sudo systemctl restart realestate-api
+            fi
 
+            if systemctl cat realestate-celery-worker.service >/dev/null 2>&1; then
+              sudo systemctl restart realestate-celery-worker
+            fi
             sudo systemctl --no-pager status axiyon-celery-calling axiyon-celery-beat --lines=20
