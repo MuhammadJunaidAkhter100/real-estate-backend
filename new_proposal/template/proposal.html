@@ -1348,8 +1348,12 @@
           {% else %}
           <div class="layout-placeholder"></div>
           {% endif %}
-          <div class="photo-title">BED SAMPLE LAYOUT</div>
+          <div class="photo-title">{{ gallery_title_4|default:"BED SAMPLE LAYOUT" }}</div>
+          {% if gallery_title_4 == "BATHROOM" %}
+          <div class="photo-desc">{{ gallery_desc_4|default:"Contemporary bathroom with quality fittings and finishes." }}</div>
+          {% else %}
           <div class="photo-desc">{{ gallery_desc_4|default:"Efficient floor layout maximizing living space with thoughtful room proportions." }}</div>
+          {% endif %}
         </div>
       </div>
       <div class="floor">

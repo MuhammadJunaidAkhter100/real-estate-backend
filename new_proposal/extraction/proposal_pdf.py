@@ -185,6 +185,13 @@ def _unit_category_key(unit) -> str:
     return f"{prefix}_sample_layout" if prefix else ""
 
 
+def _unit_bath_key(unit) -> str:
+    """Bath photo key for a unit (e.g. '1_bed_bath'). The project form asks for
+    a bath photo where it used to ask for a sample layout."""
+    prefix = _unit_image_prefix(unit)
+    return f"{prefix}_bath" if prefix else ""
+
+
 def _to_full_url(raw: str) -> str:
     """Convert a relative storage path to a full URL if needed."""
     if not raw:
@@ -259,6 +266,7 @@ def build_context(project, unit, lead, assets: dict, current_user=None) -> dict:
 
     # Local dir for downloading gallery images so Chromium can load them.
     _gallery_dir = os.path.join(_OUTPUT_DIR, str(project_id), "gallery")
+    bath_image = _pick_proposal_image(project, _unit_bath_key(unit)) if unit else ""
 
     list_price = getattr(unit, "list_price", None) if unit else None
     discounted_price = getattr(unit, "discounted_price", None) if unit else None
@@ -378,17 +386,22 @@ def build_context(project, unit, lead, assets: dict, current_user=None) -> dict:
             _pick_proposal_image(project, f"{_unit_image_prefix(unit)}_master_bedroom"),
             _gallery_dir, "gallery_3.jpg",
         ),
+        # Fourth card: the bath photo, or for older projects the sample layout.
         "gallery_image_4": _download_image_to_local(
-            _pick_proposal_image(project, _unit_category_key(unit)), _gallery_dir, "gallery_4.jpg"
+            bath_image or _pick_proposal_image(project, _unit_category_key(unit)),
+            _gallery_dir, "gallery_4.jpg",
         ),
-        "sample_layout_images": [
+        "sample_layout_images": [] if bath_image else [
             url for i, raw in enumerate(_proposal_image_list(project, _unit_category_key(unit))[:2])
             if (url := _download_image_to_local(raw, _gallery_dir, f"sample_layout_{i+1}.jpg"))
         ],
+        "gallery_title_4": "BATHROOM" if bath_image else "BED SAMPLE LAYOUT",
         "gallery_desc_1": _fact("gallery_desc_1", ""),
         "gallery_desc_2": _fact("gallery_desc_2", ""),
         "gallery_desc_3": _fact("gallery_desc_3", ""),
-        "gallery_desc_4": _fact("gallery_desc_4", ""),
+        # The AI text for card 4 describes a sample layout; a bath photo gets
+        # the template's own wording instead.
+        "gallery_desc_4": "" if bath_image else _fact("gallery_desc_4", ""),
 
         # Floor plan (from the selected unit's uploaded floor_plan_image)
         "floor_plan_image": _download_image_to_local(

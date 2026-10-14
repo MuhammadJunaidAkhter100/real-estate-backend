@@ -60,7 +60,7 @@ class UnitSerializer(OwnProjectOnlyMixin, serializers.ModelSerializer):
     class Meta:
         model = Unit
         fields = [
-            'id', 'project', 'label', 'category', 'floor',
+            'id', 'project', 'label', 'category', 'bathrooms', 'floor',
             'area_m2', 'area_ft2', 'list_price', 'discounted_price',
             'est_market_rent', 'est_yield_gross',
             'currency', 'status',
@@ -107,7 +107,7 @@ class UnitWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Unit
         fields = [
-            'label', 'category', 'floor', 'area_m2', 'area_ft2',
+            'label', 'category', 'bathrooms', 'floor', 'area_m2', 'area_ft2',
             'list_price', 'discounted_price',
             'est_market_rent', 'est_yield_gross', 'currency',
             'created_by', 'status', 'floor_plan_image',
@@ -205,8 +205,21 @@ def _build_proposal_images_urls(proposal_images, request=None):
     return result
 
 
+class OptionalDecimalField(serializers.DecimalField):
+    """A decimal that may be left empty: "" (as sent by a cleared form field)
+    is stored as no value."""
+
+    def to_internal_value(self, data):
+        if isinstance(data, str) and not data.strip():
+            return None
+        return super().to_internal_value(data)
+
+
 class ProjectSerializer(serializers.ModelSerializer):
     image = serializers.ListField(child=serializers.CharField(), read_only=True)
+    yield_percentage = OptionalDecimalField(
+        max_digits=5, decimal_places=2, required=False, allow_null=True,
+    )
     proposal_images = serializers.JSONField(read_only=True)
     units = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     units_to_add = JSONListField(
@@ -231,7 +244,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             'status', 'project_status', 'units', 'units_count', 'units_to_add',
             'starting_price', 'currency', 'yield_percentage',
             'has_active_promotion', 'active_promotion_discount', 'promotion_title', 'promotion_status',
-            'image', 'proposal_images', 'project_type', 'property_category',
+            'image', 'proposal_images', 'project_type', 'purpose', 'property_category',
             'number_of_units', 'bed_1', 'bed_2', 'bed_3', 'studio',
             'documents', 'is_visible_to_company',
             'created_by', 'created_by_name', 'created_by_email',
@@ -255,8 +268,8 @@ class ProjectSerializer(serializers.ModelSerializer):
             'developer': {'required': False, 'allow_blank': True, 'default': ''},
             'status': {'required': False, 'default': Project.Status.PLANNED},
             'starting_price': {'required': False, 'default': 0},
-            'yield_percentage': {'required': False, 'default': 0},
             'project_type': {'required': False, 'default': Project.ProjectType.RESIDENTIAL},
+            'purpose': {'required': False, 'allow_blank': True},
             'project_status': {'required': False, 'default': Project.ProjectStatus.DRAFT},
         }
 
@@ -314,7 +327,7 @@ class UserProjectSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'location', 'developer',
             'status', 'starting_price', 'currency', 'yield_percentage',
             'has_active_promotion', 'active_promotion_discount', 'promotion_title', 'promotion_status',
-            'image', 'project_type', 'created_at', 'updated_at',
+            'image', 'project_type', 'purpose', 'created_at', 'updated_at',
             'is_assigned', 'assignment',
         ]
 
@@ -466,7 +479,7 @@ class UserProjectDetailSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'location', 'developer',
             'status', 'starting_price', 'currency', 'yield_percentage',
             'has_active_promotion', 'active_promotion_discount', 'promotion_title', 'promotion_status',
-            'image', 'project_type',
+            'image', 'project_type', 'purpose',
             'created_by', 'created_by_name',
             'created_at', 'updated_at',
             'units_count', 'is_assigned', 'assignment',

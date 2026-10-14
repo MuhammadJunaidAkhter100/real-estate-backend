@@ -6,7 +6,7 @@ from projects.models import Project, ProjectAgentAssignment, ProjectDocument, Pr
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
     list_display = ('id', 'title', 'project_type', 'status', 'developer', 'unit_count', 'starting_price', 'currency', 'created_at')
-    list_filter = ('project_type', 'status', 'currency')
+    list_filter = ('project_type', 'purpose', 'status', 'currency')
     search_fields = ('title', 'developer', 'location')
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')
@@ -15,7 +15,7 @@ class ProjectAdmin(admin.ModelAdmin):
             'fields': (
                 'title', 'description', 'associated_country', 'location',
                 'developer', 'status', 'project_status', 'project_type',
-                'property_category','estimated_completion'
+                'purpose', 'property_category','estimated_completion'
             ),
         }),
         ('Pricing & Units', {
@@ -48,7 +48,7 @@ class ProjectAdmin(admin.ModelAdmin):
 
 @admin.register(Unit)
 class UnitAdmin(admin.ModelAdmin):
-    list_display = ('id', 'label', 'project', 'category', 'floor', 'area_ft2', 'list_price', 'status', 'created_at')
+    list_display = ('id', 'label', 'project', 'category', 'bathrooms', 'floor', 'area_ft2', 'list_price', 'status', 'created_at')
     list_filter = ('status', 'category', 'floor')
     search_fields = ('label', 'category', 'floor', 'project__title')
     ordering = ('project', 'label')

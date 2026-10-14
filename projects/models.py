@@ -27,7 +27,14 @@ class Project(models.Model):
     class ProjectType(models.TextChoices):
         RESIDENTIAL = 'residential', 'Residential'
         COMMERCIAL = 'commercial', 'Commercial'
+        INDUSTRIAL = 'industrial', 'Industrial'
+        # No longer offered by the form (it is a commercial category now);
+        # kept so older projects stay valid.
         HOSPITALITY = 'hospitality', 'Hospitality'
+
+    class Purpose(models.TextChoices):
+        SALE = 'sale', 'For Sale'
+        RENT = 'rent', 'For Rent'
 
     class ProjectStatus(models.TextChoices):
         DRAFT = 'draft', 'Draft'
@@ -43,8 +50,11 @@ class Project(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PLANNED)
     project_status = models.CharField(max_length=20,default=ProjectStatus.DRAFT)
     starting_price = models.DecimalField(max_digits=12, decimal_places=2)
-    yield_percentage = models.DecimalField(max_digits=5, decimal_places=2)
+    # Optional: empty when the developer has not given one.
+    yield_percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=3, blank=True, default='')
+    # Whether the project's units are for sale or for rent; empty on older projects.
+    purpose = models.CharField(max_length=10, choices=Purpose.choices, blank=True, default='')
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -221,6 +231,7 @@ class Unit(models.Model):
     associated_country = models.CharField(max_length=100, blank=True, default='')
     label = models.CharField(max_length=100)
     category = models.CharField(max_length=100, blank=True, default='', help_text='e.g., 1 Bed, 2 Bed, Studio')
+    bathrooms = models.CharField(max_length=10, blank=True, default='', help_text='e.g., 1, 2, 6+')
     floor = models.CharField(max_length=100, blank=True, default='', help_text='e.g., Ground Floor, 1st Floor')
     area_m2 = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Area in square meters')
     area_ft2 = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Area in square feet')

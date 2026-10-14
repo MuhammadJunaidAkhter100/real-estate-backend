@@ -7,6 +7,7 @@ over the WebSocket channel layer to a per-user group `notifications_<user_id>`.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 
 from django.contrib.auth import get_user_model
@@ -172,13 +173,36 @@ def _unit_image_prefix(category: str) -> str:
     return _MAP.get(category, category.replace(' ', '_'))
 
 
+# Bedroom-style unit categories ('studio', '1_bed', '10+_bed', '2_bedrooms').
+_BEDROOM_PREFIX_RE = re.compile(r'^(studio|\d+\+?_bed(room)?s?)$')
+
+
 def _required_image_keys(prefix: str) -> list[str]:
-    """Return the proposal_images keys required for a unit category prefix."""
+    """Return the proposal_images keys required for a unit category prefix.
+
+    These are the photos the project form asks for per bedroom type: kitchen
+    and dining, master bedroom and bath. Other unit types (office, shop,
+    warehouse...) get different photo slots that the proposal does not use,
+    so nothing is required for them.
+    """
+    if not _BEDROOM_PREFIX_RE.match(prefix or ''):
+        return []
     return [
-        f'{prefix}_sample_layout',
         f'{prefix}_kitchen_dining',
         f'{prefix}_master_bedroom',
+        f'{prefix}_bath',
     ]
+
+
+def _has_proposal_images(proposal_images: dict, key: str) -> bool:
+    value = proposal_images.get(key)
+    if isinstance(value, list) and any(value):
+        return True
+    # Projects from before the Bath slot have a sample layout photo instead.
+    if key.endswith('_bath'):
+        legacy = proposal_images.get(f"{key[:-len('_bath')]}_sample_layout")
+        return isinstance(legacy, list) and any(legacy)
+    return False
 
 
 def get_project_missing_unit_images(project) -> dict[str, list[str]]:
@@ -188,7 +212,7 @@ def get_project_missing_unit_images(project) -> dict[str, list[str]]:
 
     Returns a dict like::
 
-        {"3_bed": ["3_bed_sample_layout", "3_bed_kitchen_dining"], ...}
+        {"3_bed": ["3_bed_kitchen_dining", "3_bed_bath"], ...}
 
     An empty dict means every unit category has all its required images.
     """
@@ -196,10 +220,6 @@ def get_project_missing_unit_images(project) -> dict[str, list[str]]:
         return {}
 
     proposal_images = getattr(project, 'proposal_images', None) or {}
-
-    def _has_images(key: str) -> bool:
-        value = proposal_images.get(key)
-        return isinstance(value, list) and any(value)
 
     missing: dict[str, list[str]] = {}
     seen_prefixes: set[str] = set()
@@ -209,7 +229,10 @@ def get_project_missing_unit_images(project) -> dict[str, list[str]]:
             continue
         seen_prefixes.add(prefix)
 
-        missing_keys = [k for k in _required_image_keys(prefix) if not _has_images(k)]
+        missing_keys = [
+            k for k in _required_image_keys(prefix)
+            if not _has_proposal_images(proposal_images, k)
+        ]
         if missing_keys:
             missing[prefix] = missing_keys
     return missing
@@ -221,10 +244,10 @@ def notify_missing_unit_images(unit) -> list[Notification]:
     images for that unit's bed category. If the required images are missing,
     notify all super admins so they can upload them.
 
-    Required image keys per unit category prefix (e.g. '3_bed'):
-        - <prefix>_sample_layout
+    Required image keys per bedroom-style category prefix (e.g. '3_bed'):
         - <prefix>_kitchen_dining
         - <prefix>_master_bedroom
+        - <prefix>_bath (an older <prefix>_sample_layout also counts)
 
     Returns the list of Notification rows created (may be empty when the
     images already exist or a duplicate unread notification exists).
@@ -244,11 +267,10 @@ def notify_missing_unit_images(unit) -> list[Notification]:
 
     required_keys = _required_image_keys(prefix)
 
-    def _has_images(key: str) -> bool:
-        value = proposal_images.get(key)
-        return isinstance(value, list) and any(value)
-
-    missing_keys = [key for key in required_keys if not _has_images(key)]
+    missing_keys = [
+        key for key in required_keys
+        if not _has_proposal_images(proposal_images, key)
+    ]
     if not missing_keys:
         return []
 

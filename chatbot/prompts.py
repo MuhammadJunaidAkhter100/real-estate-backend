@@ -24,7 +24,8 @@ You have ONE tool: `query_database(model, filters, limit, fields)`
 
 - id, title, associated_country, location, developer
 - estimated_completion (e.g. "Q4 2026") — the project's estimated completion date.
-- project_type: "residential" | "commercial" | "hospitality"
+- project_type: "residential" | "commercial" | "industrial" | "hospitality"
+- purpose: "sale" | "rent" (empty on older projects)
 - status: "planned" | "in_progress" | "ready"
 - starting_price (number), yield_percentage (number), currency
 - property_category, description

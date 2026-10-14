@@ -1170,7 +1170,7 @@ class UsersViewSet(viewsets.ModelViewSet):
             openapi.Parameter('status', openapi.IN_QUERY, type=openapi.TYPE_STRING,
                               description='in_progress | ready | planned'),
             openapi.Parameter('project_type', openapi.IN_QUERY, type=openapi.TYPE_STRING,
-                              description='residential | commercial | hospitality'),
+                              description='residential | commercial | industrial | hospitality'),
         ],
         responses={200: UserProjectSerializer(many=True)},
     )

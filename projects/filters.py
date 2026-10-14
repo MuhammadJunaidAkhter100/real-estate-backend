@@ -7,12 +7,13 @@ from projects.models import Project, Promotion, Unit
 class ProjectFilter(django_filters.FilterSet):
     status = django_filters.ChoiceFilter(choices=Project.Status.choices)
     project_type = django_filters.ChoiceFilter(choices=Project.ProjectType.choices)
+    purpose = django_filters.ChoiceFilter(choices=Project.Purpose.choices)
     project_status = django_filters.ChoiceFilter(choices=Project.ProjectStatus.choices)
     search = django_filters.CharFilter(method='filter_search', label='Search')
 
     class Meta:
         model = Project
-        fields = ['status', 'project_type', 'project_status']
+        fields = ['status', 'project_type', 'purpose', 'project_status']
 
     def filter_search(self, queryset, name, value):
         return queryset.filter(
