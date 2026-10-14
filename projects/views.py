@@ -555,7 +555,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             location='',
             developer='',
             starting_price=0,
-            yield_percentage=0,
+            # Left empty: the form only sends a yield when one is typed in.
+            yield_percentage=None,
             project_type=Project.ProjectType.RESIDENTIAL,
             status=Project.Status.PLANNED,
             project_status=Project.ProjectStatus.DRAFT,

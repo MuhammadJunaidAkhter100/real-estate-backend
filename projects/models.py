@@ -54,7 +54,9 @@ class Project(models.Model):
     yield_percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=3, blank=True, default='')
     # Whether the project's units are for sale or for rent; empty on older projects.
-    purpose = models.CharField(max_length=10, choices=Purpose.choices, blank=True, default='')
+    # db_default keeps a database default, so code that does not know the
+    # column yet (a worker not restarted after a deploy) can still insert rows.
+    purpose = models.CharField(max_length=10, choices=Purpose.choices, blank=True, default='', db_default='')
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -231,7 +233,7 @@ class Unit(models.Model):
     associated_country = models.CharField(max_length=100, blank=True, default='')
     label = models.CharField(max_length=100)
     category = models.CharField(max_length=100, blank=True, default='', help_text='e.g., 1 Bed, 2 Bed, Studio')
-    bathrooms = models.CharField(max_length=10, blank=True, default='', help_text='e.g., 1, 2, 6+')
+    bathrooms = models.CharField(max_length=10, blank=True, default='', db_default='', help_text='e.g., 1, 2, 6+')
     floor = models.CharField(max_length=100, blank=True, default='', help_text='e.g., Ground Floor, 1st Floor')
     area_m2 = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Area in square meters')
     area_ft2 = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Area in square feet')

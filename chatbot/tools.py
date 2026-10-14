@@ -27,7 +27,7 @@ ALLOWED_MODELS = {
         "fields": [
             "id", "title", "associated_country", "location", "developer",
             "estimated_completion",
-            "project_type", "status", "project_status", "starting_price",
+            "project_type", "purpose", "status", "project_status", "starting_price",
             "yield_percentage", "currency", "property_category",
             "number_of_units", "bed_1", "bed_2", "bed_3", "studio",
             "description",

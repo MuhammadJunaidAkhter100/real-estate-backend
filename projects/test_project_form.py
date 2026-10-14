@@ -86,6 +86,19 @@ class ProjectFormFieldsTests(APITestCase):
         response = self.client.patch(f'{PROJECTS_URL}{project.pk}/', {'yield_percentage': '7.2'}, format='json')
         self.assertEqual(response.data['yield_percentage'], '7.20')
 
+    def test_a_draft_from_the_form_keeps_an_empty_yield(self):
+        # The form first creates a draft, then fills it in without a yield.
+        draft = self.client.post(f'{PROJECTS_URL}init_project/', {}, format='json')
+        self.assertEqual(draft.status_code, 201, draft.data)
+
+        response = self.client.patch(f"{PROJECTS_URL}{draft.data['id']}/", {
+            'title': 'Harbour View', 'location': 'Leeds', 'starting_price': '300000',
+            'project_status': 'live',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIsNone(response.data['yield_percentage'])
+
     def test_unknown_type_or_purpose_is_refused(self):
         bad_type = self.client.post(PROJECTS_URL, {'title': 'X', 'project_type': 'agricultural'}, format='json')
         bad_purpose = self.client.post(PROJECTS_URL, {'title': 'X', 'purpose': 'lease'}, format='json')
@@ -134,7 +147,8 @@ class ProposalImageRulesTests(SimpleTestCase):
             ['1_bed_kitchen_dining', '1_bed_master_bedroom', '1_bed_bath'],
         )
         self.assertEqual(_required_image_keys('studio')[-1], 'studio_bath')
-        self.assertEqual(_required_image_keys('10+_bed')[-1], '10+_bed_bath')
+        # The form cannot add photos for "10+ Bed", so none are asked for.
+        self.assertEqual(_required_image_keys('10+_bed'), [])
 
     def test_other_unit_types_need_none(self):
         for prefix in ('office', 'office_suite', 'warehouse', 'recording_studio', ''):

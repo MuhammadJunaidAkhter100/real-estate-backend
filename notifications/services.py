@@ -173,8 +173,10 @@ def _unit_image_prefix(category: str) -> str:
     return _MAP.get(category, category.replace(' ', '_'))
 
 
-# Bedroom-style unit categories ('studio', '1_bed', '10+_bed', '2_bedrooms').
-_BEDROOM_PREFIX_RE = re.compile(r'^(studio|\d+\+?_bed(room)?s?)$')
+# Bedroom-style unit categories ('studio', '1_bed', '2_bedrooms'). "10+ Bed"
+# is left out: the form cannot add photos for it (a "+" cannot be part of an
+# image key), so asking for them would raise an alert nobody can clear.
+_BEDROOM_PREFIX_RE = re.compile(r'^(studio|\d+_bed(room)?s?)$')
 
 
 def _required_image_keys(prefix: str) -> list[str]:

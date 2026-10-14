@@ -193,7 +193,7 @@ def scrape_company_website_task(self, company_id: int, website: str):
                 location='',
                 developer='',
                 starting_price=0,
-                yield_percentage=0,
+                yield_percentage=None,
                 project_type=Project.ProjectType.RESIDENTIAL,
                 status=Project.Status.PLANNED,
                 project_status=Project.ProjectStatus.DRAFT,
