@@ -2,6 +2,7 @@ from django.urls import path
 
 from chatbot.views import (
     ChatStreamView,
+    PublicChatStreamView,
     ChatHistoryView,
     ChatSessionListView,
     ChatSessionDeleteView,
@@ -12,6 +13,7 @@ from chatbot.views import (
 
 urlpatterns = [
     path('stream/',                         ChatStreamView.as_view(),        name='chat-stream'),
+    path('public/stream/',                  PublicChatStreamView.as_view(),  name='chat-public-stream'),
     path('sessions/',                       ChatSessionListView.as_view(),   name='chat-sessions'),
     path('sessions/<int:session_id>/',      ChatSessionDeleteView.as_view(), name='chat-session-delete'),
     path('history/<int:session_id>/',       ChatHistoryView.as_view(),       name='chat-history'),

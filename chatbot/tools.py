@@ -318,21 +318,22 @@ def query_database(
 
     combined_filters = {**model_config["default_filters"], **safe_filters}
 
-    # Leads are role-scoped (superadmin → all, company_admin → whole company,
-    # team_manager → managed team, agent → own). Country is NOT enforced.
+    # Every model is scoped to the user: projects, units and documents to the
+    # user's company (superadmin → all companies), leads and calls by role.
+    # Visitors who are not logged in get nothing. Country is NOT enforced.
+    user = _get_user(config)
+
     def _build_base_queryset():
+        if user is None:
+            return None
         if model == "Lead":
-            user = _get_user(config)
-            if user is None:
-                return None
             return _leads_for_user(user)
         if model == "Call":
-            user = _get_user(config)
-            if user is None:
-                return None
             from calling_agent.services import calls_visible_to_user
             return calls_visible_to_user(user).select_related("lead", "company", "context_user")
-        return ModelClass.objects.all()
+        if model == "Project":
+            return _projects_for_user(user)
+        return ModelClass.objects.filter(project__in=_projects_for_user(user))
 
     try:
         base_qs = _build_base_queryset()
@@ -400,6 +401,61 @@ def _get_user(config: RunnableConfig):
 def _role_allowed(config: RunnableConfig) -> bool:
     role = (config or {}).get("configurable", {}).get("user_role", "") or ""
     return role in _PROPOSAL_ROLES
+
+
+def _is_superadmin(user) -> bool:
+    """The platform superadmin sees every company's data in the chatbot."""
+    return user is not None and (
+        getattr(user, "role", None) == "superadmin"
+        or (user.is_staff and user.is_superuser)
+    )
+
+
+def _projects_for_user(user):
+    """
+    Projects the chatbot may show this user: their own company's projects, or
+    every project for the superadmin. Nobody else's, and nothing for visitors.
+    Same ownership rule as the projects API (projects/access.py).
+    """
+    from projects.models import Project
+
+    if user is None:
+        return Project.objects.none()
+    if _is_superadmin(user):
+        return Project.objects.all()
+    if not user.company_id:
+        return Project.objects.none()
+    return Project.objects.filter(created_by__company_id=user.company_id)
+
+
+def _knowledge_base_filter(user):
+    """
+    Pinecone metadata filter limiting a knowledge-base search to the user's
+    company: documents uploaded by anyone in the company, the company's website
+    import, and the documents of the company's projects.
+
+    Returns None for the superadmin (search everything). Uploaded documents
+    only carry `user_id` (no `company_id`), hence the user id list.
+    """
+    if _is_superadmin(user):
+        return None
+
+    from django.contrib.auth import get_user_model
+
+    user_ids = [user.pk]
+    if user.company_id:
+        user_ids = list(
+            get_user_model().objects
+            .filter(company_id=user.company_id)
+            .values_list("pk", flat=True)
+        ) or user_ids
+    clauses = [{"user_id": {"$in": user_ids}}]
+    if user.company_id:
+        clauses.append({"company_id": {"$eq": user.company_id}})
+    project_ids = list(_projects_for_user(user).values_list("pk", flat=True))
+    if project_ids:
+        clauses.append({"project_id": {"$in": project_ids}})
+    return clauses[0] if len(clauses) == 1 else {"$or": clauses}
 
 
 def _leads_for_user(user):
@@ -504,6 +560,8 @@ def list_lead_projects(lead_id: int, config: RunnableConfig = None) -> str:
         return json.dumps({"error": "lead_not_found", "detail": "Lead not found for your company."})
 
     project = lead.project
+    if project is not None and not _projects_for_user(user).filter(pk=project.pk).exists():
+        project = None
     if project is None:
         return json.dumps({
             "lead_id": lead.id,
@@ -547,10 +605,15 @@ def list_project_units(project_id: int, config: RunnableConfig = None) -> str:
     if not _role_allowed(config):
         return json.dumps({"error": "permission_denied"})
 
+    user = _get_user(config)
+    if user is None:
+        return json.dumps({"error": "not_authenticated"})
+
     from projects.models import Unit
 
     units = Unit.objects.select_related("project").filter(
         project_id=project_id, status="available", project__project_status="live",
+        project__in=_projects_for_user(user),
     )[:50]
 
     results = []
@@ -631,7 +694,7 @@ def generate_proposal(
             "detail": "The selected project is not the one assigned to this lead.",
         })
 
-    project = Project.objects.filter(pk=project_id).first()
+    project = _projects_for_user(user).filter(pk=project_id).first()
     if project is None:
         return json.dumps({"error": "project_not_found"})
 
@@ -730,9 +793,9 @@ def send_proposal_to_lead(
     proposal = (
         GeneratedProposal.objects
         .select_related("lead", "project", "unit")
-        .filter(pk=proposal_id)
+        .filter(pk=proposal_id, lead__created_by__company_id=user.company_id)
         .first()
-    )
+    ) if user.company_id else None
     if proposal is None:
         return json.dumps({
             "error": "proposal_not_found",
@@ -878,13 +941,15 @@ def search_knowledge_base(query: str, config: RunnableConfig = None) -> str:
     if not query:
         return json.dumps({"results": [], "detail": "Empty query."})
 
-    user_id = (config or {}).get("configurable", {}).get("user_id")
+    user = _get_user(config)
+    if user is None:
+        return json.dumps({"results": [], "error": "not_authenticated"})
 
     try:
         from chatbot.pinecone_service import PineconeService
         service = PineconeService()
-        # Search all knowledge-base documents and project documents for every user.
-        metadata_filter = None
+        # The user's company documents only (superadmin → every document).
+        metadata_filter = _knowledge_base_filter(user)
         matches = service.search(query, top_k=5, metadata_filter=metadata_filter)
     except Exception as exc:  # noqa: BLE001
         return json.dumps({"results": [], "error": str(exc)})

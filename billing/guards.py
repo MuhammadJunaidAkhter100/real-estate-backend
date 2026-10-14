@@ -38,6 +38,8 @@ EXEMPT_PATH_PREFIXES = (
     'docs/',
     # Public country list (users/country_views.py).
     'users/countries',
+    # Website chatbot for visitors (chatbot/views.py PublicChatStreamView).
+    'chatbot/public/',
 )
 
 # Health checks and similar infrastructure probes.

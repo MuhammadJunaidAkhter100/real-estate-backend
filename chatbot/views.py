@@ -1,21 +1,28 @@
 import json
 import logging
 import os
+import uuid
 from datetime import timedelta
 
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework import status
+from rest_framework import exceptions, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from chatbot.data_extraction import DataExtractor
+from chatbot.public_chat import PUBLIC_MESSAGE_MAX_CHARS, astream_reply, clean_history
 from chatbot.models import ChatSession, KnowledgeBaseDocument
-from chatbot.graph import stream_response, get_history
+from chatbot.graph import delete_history, get_history, stream_response
+from chatbot.throttles import (
+    PublicChatBurstThrottle,
+    PublicChatDailyThrottle,
+    PublicChatGlobalThrottle,
+)
 from chatbot.tasks import (
     extract_knowledge_base_document,
     fail_stalled_documents,
@@ -56,6 +63,13 @@ def refund_chat_turn(user) -> None:
 
 # ── Stream chat ────────────────────────────────────────────────────────────────
 
+def _delete_history_quietly(thread_id: str) -> None:
+    try:
+        delete_history(thread_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not delete chat history for thread %s", thread_id)
+
+
 class ChatStreamView(APIView):
     """
     POST /api/chatbot/stream/
@@ -78,12 +92,19 @@ class ChatStreamView(APIView):
         const reader = res.body.getReader();
         // read chunks and parse SSE lines
     """
-    permission_classes = [AllowAny]
+    # Logged-in users only. Visitors use PublicChatStreamView.
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         tags=['Chatbot'],
         operation_description=(
-            "Stream a chatbot response via SSE.\n\n"
+            "Stream a chatbot response via SSE. Login required.\n\n"
+            "- Answers come from the user's own company data only (projects, units, "
+            "documents, knowledge base, leads, tasks, calls, users). The superadmin "
+            "gets all companies. Visitors who are not logged in use "
+            "`POST /api/chatbot/public/stream/` instead.\n"
+            "- A conversation (thread_id) can only be continued by the user who "
+            "started it; anyone else gets 403.\n"
             "- **thread_id** (optional): pass an existing thread_id to continue a conversation. "
             "Omit (or pass null) to start a new conversation — a new thread_id will be returned in the `done` event.\n"
             "- Greeting messages (hi, hello, who are you …) return instantly without hitting the LLM.\n"
@@ -112,17 +133,27 @@ class ChatStreamView(APIView):
             return Response({'detail': 'message is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if not thread_id:
             return Response({'detail': 'thread_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            thread_id = str(uuid.UUID(thread_id))
+        except ValueError:
+            return Response({'detail': 'thread_id must be a UUID.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = request.user if request.user.is_authenticated else None
+        user = request.user
 
-        # Reuse the same thread_id when it already exists, even for anonymous/public requests.
-        # A conversation is keyed on its thread_id; if the user is authenticated, attach it to the session.
+        # A conversation is keyed on its thread_id and belongs to the user who
+        # started it. Nobody else may continue it: its saved history holds that
+        # user's company data.
         session = ChatSession.objects.filter(thread_id=thread_id).first()
         if session is None:
+            # History saved under this thread_id without a session belongs to
+            # a deleted chat; never hand it to the new owner.
+            _delete_history_quietly(thread_id)
             session = ChatSession.objects.create(thread_id=thread_id, user=user)
-        elif user is not None and session.user_id != user.pk:
-            session.user = user
-            session.save(update_fields=['user'])
+        elif session.user_id != user.pk:
+            return Response(
+                {'detail': 'This conversation belongs to someone else. Please start a new chat.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Use first message as session title if not set yet
         if not session.title:
@@ -132,19 +163,13 @@ class ChatStreamView(APIView):
         # Use the thread_id exactly as provided (or the new session's UUID)
         thread_id_str = str(session.thread_id)
 
-        if user is not None:
-            current_country = getattr(user, 'current_country', '') or ''
-            user_id = user.id
-            user_role = getattr(user, 'role', '') or ''
-        else:
-            current_country = ''
-            user_id = None
-            user_role = 'public'
+        current_country = getattr(user, 'current_country', '') or ''
+        user_id = user.id
+        user_role = getattr(user, 'role', '') or ''
 
         # Billing: one credit per chat turn, charged before the stream opens so
         # an exhausted allowance is a clean 403 instead of a broken stream.
-        # Public chatbot requests bypass the billing gate.
-        charged_here = charge_chat_turn(user) if user is not None else False
+        charged_here = charge_chat_turn(user)
 
         def _event_stream():
             yielded = False
@@ -169,6 +194,122 @@ class ChatStreamView(APIView):
                 yield f"data: {error_payload}\n\n"
 
         response = StreamingHttpResponse(_event_stream(), content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'   # disable nginx buffering
+        return response
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+async def _public_event_stream(message, history):
+    try:
+        async for text in astream_reply(message, history):
+            yield _sse({"type": "token", "content": text})
+        yield _sse({"type": "done"})
+    except Exception:  # noqa: BLE001
+        logger.exception("Public chat reply failed")
+        yield _sse({"type": "error", "detail": "Sorry, something went wrong. Please try again."})
+
+
+class PublicChatStreamView(APIView):
+    """
+    POST /api/chatbot/public/stream/
+
+    The website chatbot for visitors who are not logged in. Answers questions
+    about Techfy (features, services, pricing, onboarding, contact) from the
+    public website only. No login, no tools, no data access, nothing saved on
+    the server: the browser keeps the conversation and sends the latest turns.
+    """
+    # No authentication at all: a stale token in the browser must not turn a
+    # visitor's question into a 401.
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    parser_classes = [JSONParser]
+    throttle_classes = [PublicChatBurstThrottle, PublicChatDailyThrottle]
+
+    def check_throttles(self, request):
+        # Stop at the first limit hit, so a refused request is not counted by
+        # the other limits.
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                self.throttled(request, throttle.wait())
+
+    def throttled(self, request, wait):
+        raise exceptions.Throttled(
+            wait=wait,
+            detail='You are sending messages too quickly. Please wait a moment and try again.',
+        )
+
+    @swagger_auto_schema(
+        tags=['Chatbot'],
+        operation_description=(
+            "Website chatbot for visitors who are not logged in. Streams the reply as "
+            "Server-Sent Events, in the same format as `/api/chatbot/stream/`.\n\n"
+            "- No login (send no Authorization header).\n"
+            "- Answers only about Techfy from the public website: features, services, "
+            "pricing, onboarding, contact. It has no access to any company's data and "
+            "cannot create proposals, leads or tasks.\n"
+            "- Nothing is saved on the server. Send the conversation so far in "
+            "`history` (the latest 10 messages are used).\n"
+            f"- `message` is limited to {PUBLIC_MESSAGE_MAX_CHARS} characters.\n"
+            "- Rate limited per visitor (10 a minute, 150 a day); 429 when exceeded."
+        ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['message'],
+            properties={
+                'message': openapi.Schema(type=openapi.TYPE_STRING, description='The visitor\'s question'),
+                'history': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    description='Earlier turns, oldest first (optional)',
+                    items=openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'role': openapi.Schema(type=openapi.TYPE_STRING, enum=['user', 'assistant']),
+                            'content': openapi.Schema(type=openapi.TYPE_STRING),
+                        },
+                    ),
+                ),
+            },
+        ),
+        responses={
+            200: openapi.Response(description=(
+                'SSE stream.\n'
+                'data: {"type": "token", "content": "chunk..."}\n'
+                'data: {"type": "done"}\n'
+                'data: {"type": "error", "detail": "..."}'
+            )),
+            400: 'Missing or too long message',
+            429: 'Too many messages',
+        },
+    )
+    def post(self, request):
+        data = request.data if isinstance(request.data, dict) else {}
+        message = data.get('message')
+        message = message.strip() if isinstance(message, str) else ''
+        if not message:
+            return Response({'detail': 'message is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(message) > PUBLIC_MESSAGE_MAX_CHARS:
+            return Response(
+                {'detail': f'Please keep your message under {PUBLIC_MESSAGE_MAX_CHARS} characters.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The cap for all visitors together counts only messages that will
+        # really reach OpenAI.
+        if not PublicChatGlobalThrottle().allow_request(request, self):
+            return Response(
+                {'detail': 'The website assistant is busy right now. Please try again later, '
+                           'or email hello@techfy.io.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        response = StreamingHttpResponse(
+            _public_event_stream(message, clean_history(data.get('history'))),
+            content_type='text/event-stream',
+        )
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'   # disable nginx buffering
         return response
@@ -260,7 +401,9 @@ class ChatSessionDeleteView(APIView):
             session = ChatSession.objects.get(pk=session_id, user=request.user)
         except ChatSession.DoesNotExist:
             return Response({'detail': 'Session not found.'}, status=status.HTTP_404_NOT_FOUND)
+        thread_id = str(session.thread_id)
         session.delete()
+        _delete_history_quietly(thread_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

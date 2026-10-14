@@ -1,5 +1,5 @@
 """
-LangGraph chatbot service for Axiyon.ai.
+LangGraph chatbot service for Techfy.
 
 Flow:
   1. classify_message  → greeting/off-topic  → instant_reply (no LLM)
@@ -21,7 +21,12 @@ from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 from chatbot.prompts import SYSTEM_PROMPT
+from chatbot.public_prompt import PUBLIC_SYSTEM_PROMPT
 from chatbot.tools import ALL_TOOLS
+
+# Visitors who are not logged in only see the latest turns of their chat, to
+# keep each public request small.
+PUBLIC_HISTORY_MESSAGES = 20
 
 
 # ── LangGraph state ───────────────────────────────────────────────────────────
@@ -32,13 +37,46 @@ class State(TypedDict):
 
 # ── LLM with tools bound ──────────────────────────────────────────────────────
 
-def _get_llm():
-    return ChatOpenAI(
+def _tools_for(user_id) -> list:
+    """Logged-in users get every tool (each tool scopes its data to the user's
+    company and checks the role). Visitors get none: no database access."""
+    return ALL_TOOLS if user_id else []
+
+
+def _get_llm(tools):
+    llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0.4,
         streaming=True,
         openai_api_key=settings.OPENAI_API_KEY,
-    ).bind_tools(ALL_TOOLS)
+    )
+    return llm.bind_tools(tools) if tools else llm
+
+
+def _data_scope_note(user_id) -> str:
+    """Tell the LLM whose data its tools can see."""
+    from django.contrib.auth import get_user_model
+
+    from chatbot.tools import _is_superadmin
+
+    user = get_user_model().objects.select_related("company").filter(pk=user_id).first()
+    if user is None:
+        return ""
+    if _is_superadmin(user):
+        return (
+            "\n\n## Data scope\n"
+            "This user is the platform **superadmin**. The tools return data from "
+            "ALL companies on the platform. Mention the company name when it helps."
+        )
+    company = user.company.name if user.company else "the user's company"
+    return (
+        f"\n\n## Data scope\n"
+        f"This user belongs to **{company}**. Every tool returns ONLY {company}'s own "
+        f"data (its projects, units, documents, knowledge base, leads, tasks, calls "
+        f"and users). Never claim to see other companies' data. If the user asks "
+        f"about another company, or about all companies, explain that you can only "
+        f"access {company}'s data."
+    )
 
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
@@ -84,12 +122,43 @@ def _sanitize_messages(messages: list) -> list:
     return cleaned
 
 
+def _drop_earlier_tool_traffic(messages: list) -> list:
+    """
+    Keep only the text of earlier turns. Tool calls and tool results from
+    before the latest user message are dropped, so data a tool returned in an
+    earlier turn (under another role, company or older code) is never replayed
+    to the LLM. The current turn's tool loop is kept as is.
+    """
+    last_user = max(
+        (i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), default=-1)
+    kept = []
+    for i, msg in enumerate(messages):
+        if i >= last_user:
+            kept.append(msg)
+        elif isinstance(msg, ToolMessage):
+            continue
+        elif isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            if (msg.content or "").strip():
+                kept.append(AIMessage(content=msg.content))
+        else:
+            kept.append(msg)
+    return kept
+
+
 def agent_node(state: State) -> State:
     """Call LLM with tools. LLM decides whether to call a tool or respond directly."""
     from langgraph.config import get_config
     config = get_config()
     configurable = config.get("configurable", {})
     user_role = configurable.get("user_role", "")
+    user_id = configurable.get("user_id")
+
+    if not user_id:
+        # Website visitor: answers from the public website facts only.
+        history = _sanitize_messages(list(state["messages"]))[-PUBLIC_HISTORY_MESSAGES:]
+        response = _get_llm([]).invoke(
+            [SystemMessage(content=PUBLIC_SYSTEM_PROMPT)] + history)
+        return {"messages": [response]}
 
     # Projects/units/documents are public across all countries. The chatbot
     # does not enforce the user's active country on real-estate data anymore —
@@ -121,9 +190,10 @@ def agent_node(state: State) -> State:
         f"Ignore the time-of-day part (e.g. '10 am') \u2014 due_date is a date only."
     )
 
-    llm = _get_llm()
-    history = _sanitize_messages(list(state["messages"]))
-    lc_messages = [SystemMessage(content=SYSTEM_PROMPT + role_note + date_note)] + history
+    llm = _get_llm(_tools_for(user_id))
+    history = _drop_earlier_tool_traffic(_sanitize_messages(list(state["messages"])))
+    scope_note = _data_scope_note(user_id)
+    lc_messages = [SystemMessage(content=SYSTEM_PROMPT + role_note + scope_note + date_note)] + history
     response = llm.invoke(lc_messages)
 
     # Log which tools (if any) the LLM decided to call this turn.
@@ -151,7 +221,9 @@ def tools_node(state: State) -> State:
     if not hasattr(last, "tool_calls") or not last.tool_calls:
         return {"messages": []}
 
-    tool_map = {tool.name: tool for tool in ALL_TOOLS}
+    from langgraph.config import get_config
+    user_id = get_config().get("configurable", {}).get("user_id")
+    tool_map = {tool.name: tool for tool in _tools_for(user_id)}
     tool_messages = []
     for tool_call in last.tool_calls:
         name = tool_call.get("name")
@@ -290,6 +362,16 @@ def stream_response(
                 and not getattr(chunk, "tool_calls", None)
             ):
                 yield chunk.content
+    finally:
+        if conn:
+            conn.close()
+
+
+def delete_history(thread_id: str) -> None:
+    """Delete a conversation's saved history (its LangGraph checkpoints)."""
+    compiled_graph, conn = _get_graph()
+    try:
+        compiled_graph.checkpointer.delete_thread(thread_id)
     finally:
         if conn:
             conn.close()
