@@ -1,0 +1,61 @@
+name: Server check
+
+# Read-only. Run by hand (Actions tab -> Server check -> Run workflow) to see
+# what the app server is running: code version, app services, memory and
+# whether every migration is applied. Changes nothing on the server.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Read the app server state
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          command_timeout: 10m
+          timeout: 120s
+          script: |
+            set -uo pipefail
+
+            APP_DIR="/home/ubuntu/real-estate-backend"
+            cd "$APP_DIR"
+
+            echo "===== machine ====="
+            uptime
+            free -m
+
+            echo "===== code ====="
+            git log --oneline -1
+            git status --short | head -n 10
+
+            echo "===== services that run the app ====="
+            for unit in $(systemctl list-units --type=service --all --no-legend --plain | awk '{print $1}'); do
+              exec_start="$(systemctl show -p ExecStart --value "$unit" 2>/dev/null || true)"
+              case "$exec_start" in
+                *"$APP_DIR"*)
+                  echo "$unit: $(systemctl is-active "$unit"), since $(systemctl show -p ActiveEnterTimestamp --value "$unit")"
+                  ;;
+              esac
+            done
+            echo "nginx: $(systemctl is-active nginx)"
+
+            echo "===== app processes ====="
+            ps -eo pid,etime,rss,comm,args --sort=-rss | awk 'NR == 1 || /gunicorn|daphne|uvicorn|celery|manage[.]py/' | grep -v awk | cut -c1-160 | head -n 20
+
+            echo "===== database ====="
+            grep -E '^DB_ENGINE=' .env || echo "DB_ENGINE not in .env"
+
+            echo "===== migrations not applied ====="
+            if [ -x "$APP_DIR/venv/bin/python" ]; then
+              PYTHON="$APP_DIR/venv/bin/python"
+            else
+              PYTHON="$APP_DIR/.venv/bin/python"
+            fi
+            timeout 300 "$PYTHON" manage.py showmigrations --plan | grep -F '[ ]' || echo "none: every migration is applied"
