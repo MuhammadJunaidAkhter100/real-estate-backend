@@ -52,11 +52,15 @@ jobs:
             sudo systemctl enable --now axiyon-celery-beat
             sudo systemctl restart axiyon-celery-beat
 
-            if sudo systemctl list-unit-files | grep -q '^gunicorn\.service'; then
+            # `systemctl cat` rather than `list-unit-files | grep -q`: under
+            # pipefail that pipeline came back false (grep closes the pipe
+            # early), so the web server was never restarted and kept running
+            # the previous code.
+            if systemctl cat gunicorn.service >/dev/null 2>&1; then
               sudo systemctl restart gunicorn
             fi
 
-            if sudo systemctl list-unit-files | grep -q '^daphne\.service'; then
+            if systemctl cat daphne.service >/dev/null 2>&1; then
               sudo systemctl restart daphne
             fi
 

@@ -660,4 +660,48 @@ class ScrapedProjectCreationTestCase(TestCase):
         mock_storage_save.assert_called_once()
 
 
+class CountryCurrencyTestCase(TestCase):
+    def test_every_country_has_a_currency(self):
+        from api.constants import COUNTRY_CURRENCY_MAP, COUNTRY_NAMES
 
+        for name in COUNTRY_NAMES:
+            currency = COUNTRY_CURRENCY_MAP.get(name, '')
+            self.assertRegex(currency, r'^[A-Z]{3}$', name)
+
+    def test_currencies_match_the_country(self):
+        from api.constants import COUNTRY_CURRENCY_MAP
+
+        expected = {
+            'Andorra': 'EUR',
+            'Pakistan': 'PKR',
+            'United Kingdom': 'GBP',
+            'UK': 'GBP',
+            'United Arab Emirates': 'AED',
+            'UAE': 'AED',
+            'Oman': 'OMR',
+            'Saudi Arabia': 'SAR',
+            'Indonesia': 'USD',
+        }
+        for country, currency in expected.items():
+            self.assertEqual(COUNTRY_CURRENCY_MAP.get(country), currency, country)
+
+    def test_commissions_use_the_users_country_currency(self):
+        from users.commission_service import CommissionAnalyticsService
+
+        company = Company.objects.create(name='Andorra Homes', operating_countries=['Andorra'])
+        admin = User.objects.create_user(
+            email='admin@andorra.test',
+            first_name='Andorra',
+            last_name='Admin',
+            password='password123',
+            company=company,
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+            countries=['Andorra'],
+        )
+        admin.current_country = 'Andorra'
+
+        service = CommissionAnalyticsService(admin)
+
+        self.assertEqual(service.currency, 'EUR')
+        self.assertEqual(service.currency_symbol, '€')

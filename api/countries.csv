@@ -1,200 +1,200 @@
-name,code,dialCode
-Afghanistan,AF,+93
-Albania,AL,+355
-Algeria,DZ,+213
-Andorra,AD,+376
-Angola,AO,+244
-Antigua and Barbuda,AG,+1
-Argentina,AR,+54
-Armenia,AM,+374
-Australia,AU,+61
-Austria,AT,+43
-Azerbaijan,AZ,+994
-Bahamas,BS,+1
-Bahrain,BH,+973
-Bangladesh,BD,+880
-Barbados,BB,+1
-Belarus,BY,+375
-Belgium,BE,+32
-Belize,BZ,+501
-Benin,BJ,+229
-Bhutan,BT,+975
-Bolivia,BO,+591
-Bosnia and Herzegovina,BA,+387
-Botswana,BW,+267
-Brazil,BR,+55
-Brunei,BN,+673
-Bulgaria,BG,+359
-Burkina Faso,BF,+226
-Burundi,BI,+257
-Cabo Verde,CV,+238
-Cambodia,KH,+855
-Cameroon,CM,+237
-Canada,CA,+1
-Central African Republic,CF,+236
-Chad,TD,+235
-Chile,CL,+56
-China,CN,+86
-Colombia,CO,+57
-Comoros,KM,+269
-Congo,CG,+242
-Costa Rica,CR,+506
-Côte d'Ivoire,CI,+225
-Croatia,HR,+385
-Cuba,CU,+53
-Cyprus,CY,+357
-Czechia,CZ,+420
-DR Congo,CD,+243
-Denmark,DK,+45
-Djibouti,DJ,+253
-Dominica,DM,+1
-Dominican Republic,DO,+1
-Ecuador,EC,+593
-Egypt,EG,+20
-El Salvador,SV,+503
-Equatorial Guinea,GQ,+240
-Eritrea,ER,+291
-Estonia,EE,+372
-Eswatini,SZ,+268
-Ethiopia,ET,+251
-Fiji,FJ,+679
-Finland,FI,+358
-France,FR,+33
-Gabon,GA,+241
-Gambia,GM,+220
-Georgia,GE,+995
-Germany,DE,+49
-Ghana,GH,+233
-Greece,GR,+30
-Grenada,GD,+1
-Guatemala,GT,+502
-Guinea,GN,+224
-Guinea-Bissau,GW,+245
-Guyana,GY,+592
-Haiti,HT,+509
-Honduras,HN,+504
-Hong Kong,HK,+852
-Hungary,HU,+36
-Iceland,IS,+354
-India,IN,+91
-Indonesia,ID,+62
-Iran,IR,+98
-Iraq,IQ,+964
-Ireland,IE,+353
-Israel,IL,+972
-Italy,IT,+39
-Jamaica,JM,+1
-Japan,JP,+81
-Jordan,JO,+962
-Kazakhstan,KZ,+7
-Kenya,KE,+254
-Kiribati,KI,+686
-Kosovo,XK,+383
-Kuwait,KW,+965
-Kyrgyzstan,KG,+996
-Laos,LA,+856
-Latvia,LV,+371
-Lebanon,LB,+961
-Lesotho,LS,+266
-Liberia,LR,+231
-Libya,LY,+218
-Liechtenstein,LI,+423
-Lithuania,LT,+370
-Luxembourg,LU,+352
-Macao,MO,+853
-Madagascar,MG,+261
-Malawi,MW,+265
-Malaysia,MY,+60
-Maldives,MV,+960
-Mali,ML,+223
-Malta,MT,+356
-Marshall Islands,MH,+692
-Mauritania,MR,+222
-Mauritius,MU,+230
-Mexico,MX,+52
-Micronesia,FM,+691
-Moldova,MD,+373
-Monaco,MC,+377
-Mongolia,MN,+976
-Montenegro,ME,+382
-Morocco,MA,+212
-Mozambique,MZ,+258
-Myanmar,MM,+95
-Namibia,NA,+264
-Nauru,NR,+674
-Nepal,NP,+977
-Netherlands,NL,+31
-New Zealand,NZ,+64
-Nicaragua,NI,+505
-Niger,NE,+227
-Nigeria,NG,+234
-North Korea,KP,+850
-North Macedonia,MK,+389
-Norway,NO,+47
-Oman,OM,+968
-Pakistan,PK,+92
-Palau,PW,+680
-Palestine,PS,+970
-Panama,PA,+507
-Papua New Guinea,PG,+675
-Paraguay,PY,+595
-Peru,PE,+51
-Philippines,PH,+63
-Poland,PL,+48
-Portugal,PT,+351
-Qatar,QA,+974
-Romania,RO,+40
-Russia,RU,+7
-Rwanda,RW,+250
-Saint Kitts and Nevis,KN,+1
-Saint Lucia,LC,+1
-Saint Vincent and the Grenadines,VC,+1
-Samoa,WS,+685
-San Marino,SM,+378
-Sao Tome and Principe,ST,+239
-Saudi Arabia,SA,+966
-Senegal,SN,+221
-Serbia,RS,+381
-Seychelles,SC,+248
-Sierra Leone,SL,+232
-Singapore,SG,+65
-Slovakia,SK,+421
-Slovenia,SI,+386
-Solomon Islands,SB,+677
-Somalia,SO,+252
-South Africa,ZA,+27
-South Korea,KR,+82
-South Sudan,SS,+211
-Spain,ES,+34
-Sri Lanka,LK,+94
-Sudan,SD,+249
-Suriname,SR,+597
-Sweden,SE,+46
-Switzerland,CH,+41
-Syria,SY,+963
-Taiwan,TW,+886
-Tajikistan,TJ,+992
-Tanzania,TZ,+255
-Thailand,TH,+66
-Timor-Leste,TL,+670
-Togo,TG,+228
-Tonga,TO,+676
-Trinidad and Tobago,TT,+1
-Tunisia,TN,+216
-Turkey,TR,+90
-Turkmenistan,TM,+993
-Tuvalu,TV,+688
-Uganda,UG,+256
-Ukraine,UA,+380
-United Arab Emirates,AE,+971
-United Kingdom,GB,+44
-United States,US,+1
-Uruguay,UY,+598
-Uzbekistan,UZ,+998
-Vanuatu,VU,+678
-Vatican City,VA,+39
-Venezuela,VE,+58
-Vietnam,VN,+84
-Yemen,YE,+967
-Zambia,ZM,+260
-Zimbabwe,ZW,+263
+name,code,dialCode,currency
+Afghanistan,AF,+93,AFN
+Albania,AL,+355,ALL
+Algeria,DZ,+213,DZD
+Andorra,AD,+376,EUR
+Angola,AO,+244,AOA
+Antigua and Barbuda,AG,+1,XCD
+Argentina,AR,+54,ARS
+Armenia,AM,+374,AMD
+Australia,AU,+61,AUD
+Austria,AT,+43,EUR
+Azerbaijan,AZ,+994,AZN
+Bahamas,BS,+1,BSD
+Bahrain,BH,+973,BHD
+Bangladesh,BD,+880,BDT
+Barbados,BB,+1,BBD
+Belarus,BY,+375,BYN
+Belgium,BE,+32,EUR
+Belize,BZ,+501,BZD
+Benin,BJ,+229,XOF
+Bhutan,BT,+975,BTN
+Bolivia,BO,+591,BOB
+Bosnia and Herzegovina,BA,+387,BAM
+Botswana,BW,+267,BWP
+Brazil,BR,+55,BRL
+Brunei,BN,+673,BND
+Bulgaria,BG,+359,BGN
+Burkina Faso,BF,+226,XOF
+Burundi,BI,+257,BIF
+Cabo Verde,CV,+238,CVE
+Cambodia,KH,+855,KHR
+Cameroon,CM,+237,XAF
+Canada,CA,+1,CAD
+Central African Republic,CF,+236,XAF
+Chad,TD,+235,XAF
+Chile,CL,+56,CLP
+China,CN,+86,CNY
+Colombia,CO,+57,COP
+Comoros,KM,+269,KMF
+Congo,CG,+242,XAF
+Costa Rica,CR,+506,CRC
+Côte d'Ivoire,CI,+225,XOF
+Croatia,HR,+385,EUR
+Cuba,CU,+53,CUP
+Cyprus,CY,+357,EUR
+Czechia,CZ,+420,CZK
+DR Congo,CD,+243,CDF
+Denmark,DK,+45,DKK
+Djibouti,DJ,+253,DJF
+Dominica,DM,+1,XCD
+Dominican Republic,DO,+1,DOP
+Ecuador,EC,+593,USD
+Egypt,EG,+20,EGP
+El Salvador,SV,+503,USD
+Equatorial Guinea,GQ,+240,XAF
+Eritrea,ER,+291,ERN
+Estonia,EE,+372,EUR
+Eswatini,SZ,+268,SZL
+Ethiopia,ET,+251,ETB
+Fiji,FJ,+679,FJD
+Finland,FI,+358,EUR
+France,FR,+33,EUR
+Gabon,GA,+241,XAF
+Gambia,GM,+220,GMD
+Georgia,GE,+995,GEL
+Germany,DE,+49,EUR
+Ghana,GH,+233,GHS
+Greece,GR,+30,EUR
+Grenada,GD,+1,XCD
+Guatemala,GT,+502,GTQ
+Guinea,GN,+224,GNF
+Guinea-Bissau,GW,+245,XOF
+Guyana,GY,+592,GYD
+Haiti,HT,+509,HTG
+Honduras,HN,+504,HNL
+Hong Kong,HK,+852,HKD
+Hungary,HU,+36,HUF
+Iceland,IS,+354,ISK
+India,IN,+91,INR
+Indonesia,ID,+62,USD
+Iran,IR,+98,IRR
+Iraq,IQ,+964,IQD
+Ireland,IE,+353,EUR
+Israel,IL,+972,ILS
+Italy,IT,+39,EUR
+Jamaica,JM,+1,JMD
+Japan,JP,+81,JPY
+Jordan,JO,+962,JOD
+Kazakhstan,KZ,+7,KZT
+Kenya,KE,+254,KES
+Kiribati,KI,+686,AUD
+Kosovo,XK,+383,EUR
+Kuwait,KW,+965,KWD
+Kyrgyzstan,KG,+996,KGS
+Laos,LA,+856,LAK
+Latvia,LV,+371,EUR
+Lebanon,LB,+961,LBP
+Lesotho,LS,+266,LSL
+Liberia,LR,+231,LRD
+Libya,LY,+218,LYD
+Liechtenstein,LI,+423,CHF
+Lithuania,LT,+370,EUR
+Luxembourg,LU,+352,EUR
+Macao,MO,+853,MOP
+Madagascar,MG,+261,MGA
+Malawi,MW,+265,MWK
+Malaysia,MY,+60,MYR
+Maldives,MV,+960,MVR
+Mali,ML,+223,XOF
+Malta,MT,+356,EUR
+Marshall Islands,MH,+692,USD
+Mauritania,MR,+222,MRU
+Mauritius,MU,+230,MUR
+Mexico,MX,+52,MXN
+Micronesia,FM,+691,USD
+Moldova,MD,+373,MDL
+Monaco,MC,+377,EUR
+Mongolia,MN,+976,MNT
+Montenegro,ME,+382,EUR
+Morocco,MA,+212,MAD
+Mozambique,MZ,+258,MZN
+Myanmar,MM,+95,MMK
+Namibia,NA,+264,NAD
+Nauru,NR,+674,AUD
+Nepal,NP,+977,NPR
+Netherlands,NL,+31,EUR
+New Zealand,NZ,+64,NZD
+Nicaragua,NI,+505,NIO
+Niger,NE,+227,XOF
+Nigeria,NG,+234,NGN
+North Korea,KP,+850,KPW
+North Macedonia,MK,+389,MKD
+Norway,NO,+47,NOK
+Oman,OM,+968,OMR
+Pakistan,PK,+92,PKR
+Palau,PW,+680,USD
+Palestine,PS,+970,ILS
+Panama,PA,+507,PAB
+Papua New Guinea,PG,+675,PGK
+Paraguay,PY,+595,PYG
+Peru,PE,+51,PEN
+Philippines,PH,+63,PHP
+Poland,PL,+48,PLN
+Portugal,PT,+351,EUR
+Qatar,QA,+974,QAR
+Romania,RO,+40,RON
+Russia,RU,+7,RUB
+Rwanda,RW,+250,RWF
+Saint Kitts and Nevis,KN,+1,XCD
+Saint Lucia,LC,+1,XCD
+Saint Vincent and the Grenadines,VC,+1,XCD
+Samoa,WS,+685,WST
+San Marino,SM,+378,EUR
+Sao Tome and Principe,ST,+239,STN
+Saudi Arabia,SA,+966,SAR
+Senegal,SN,+221,XOF
+Serbia,RS,+381,RSD
+Seychelles,SC,+248,SCR
+Sierra Leone,SL,+232,SLE
+Singapore,SG,+65,SGD
+Slovakia,SK,+421,EUR
+Slovenia,SI,+386,EUR
+Solomon Islands,SB,+677,SBD
+Somalia,SO,+252,SOS
+South Africa,ZA,+27,ZAR
+South Korea,KR,+82,KRW
+South Sudan,SS,+211,SSP
+Spain,ES,+34,EUR
+Sri Lanka,LK,+94,LKR
+Sudan,SD,+249,SDG
+Suriname,SR,+597,SRD
+Sweden,SE,+46,SEK
+Switzerland,CH,+41,CHF
+Syria,SY,+963,SYP
+Taiwan,TW,+886,TWD
+Tajikistan,TJ,+992,TJS
+Tanzania,TZ,+255,TZS
+Thailand,TH,+66,THB
+Timor-Leste,TL,+670,USD
+Togo,TG,+228,XOF
+Tonga,TO,+676,TOP
+Trinidad and Tobago,TT,+1,TTD
+Tunisia,TN,+216,TND
+Turkey,TR,+90,TRY
+Turkmenistan,TM,+993,TMT
+Tuvalu,TV,+688,AUD
+Uganda,UG,+256,UGX
+Ukraine,UA,+380,UAH
+United Arab Emirates,AE,+971,AED
+United Kingdom,GB,+44,GBP
+United States,US,+1,USD
+Uruguay,UY,+598,UYU
+Uzbekistan,UZ,+998,UZS
+Vanuatu,VU,+678,VUV
+Vatican City,VA,+39,EUR
+Venezuela,VE,+58,VES
+Vietnam,VN,+84,VND
+Yemen,YE,+967,YER
+Zambia,ZM,+260,ZMW
+Zimbabwe,ZW,+263,ZWL
