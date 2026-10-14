@@ -36,6 +36,8 @@ EXEMPT_PATH_PREFIXES = (
     'swagger',
     'schema',
     'docs/',
+    # Public country list (users/country_views.py).
+    'users/countries',
 )
 
 # Health checks and similar infrastructure probes.

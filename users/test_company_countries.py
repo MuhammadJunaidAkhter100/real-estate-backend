@@ -38,6 +38,20 @@ class CountryListTests(TestCase):
         self.assertNotIn('United Kingdom', by_name)
         self.assertTrue(all(len(entry['currency']) == 3 for entry in response.data))
 
+    def test_accented_names_sort_as_plain_letters(self):
+        names = [entry['name'] for entry in APIClient().get(ALL_URL).data]
+
+        self.assertEqual(names[names.index('Costa Rica') + 1], "Côte d'Ivoire")
+
+    def test_a_bad_or_expired_token_does_not_block_the_list(self):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION='Bearer not-a-real-token')
+
+        response = client.get(ALL_URL)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 199)
+
 
 class CompanyCountriesTests(TestCase):
     def setUp(self):
@@ -125,6 +139,53 @@ class CompanyCountriesTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.names(response), ['UK'])
+
+    def test_add_and_remove_return_the_callers_countries(self):
+        self.client.force_authenticate(self.admin)
+
+        added = self.client.post(COMPANY_URL, {'country': 'Pakistan'}, format='json')
+        removed = self.client.delete(COMPANY_URL + 'UK/')
+
+        self.assertEqual(added.data['user'], {'countries': ['UK', 'Andorra', 'Pakistan'], 'current_country': 'UK'})
+        self.assertEqual(removed.status_code, 400)  # the team manager only has UK
+        self.manager.countries = ['UK', 'Andorra']
+        self.manager.save(update_fields=['countries'])
+        removed = self.client.delete(COMPANY_URL + 'UK/')
+        self.assertEqual(removed.status_code, 200, removed.data)
+        self.assertEqual(removed.data['user'], {'countries': ['Andorra', 'Pakistan'], 'current_country': 'Andorra'})
+
+    def test_an_admin_with_fewer_countries_is_given_the_remaining_ones(self):
+        # Older admins can hold fewer countries than their company.
+        self.admin.countries = ['UK']
+        self.admin.save(update_fields=['countries'])
+        self.manager.countries = ['UK', 'Andorra']
+        self.manager.save(update_fields=['countries'])
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.delete(COMPANY_URL + 'UK/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.countries, ['Andorra'])
+        self.assertEqual(self.admin.current_country, 'Andorra')
+
+    def test_a_country_stored_twice_is_listed_once(self):
+        self.company.operating_countries = ['UK', 'United Kingdom', 'Andorra']
+        self.company.save(update_fields=['operating_countries'])
+        self.client.force_authenticate(self.agent)
+
+        response = self.client.get(COMPANY_URL)
+
+        self.assertEqual(self.names(response), ['UK', 'Andorra'])
+
+    def test_older_spellings_count_as_the_same_country(self):
+        self.company.operating_countries = ['USA']
+        self.company.save(update_fields=['operating_countries'])
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.post(COMPANY_URL, {'country': 'US'}, format='json')
+
+        self.assertEqual(response.status_code, 400)
 
     def test_the_last_country_cannot_be_removed(self):
         self.client.force_authenticate(self.other_admin)

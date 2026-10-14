@@ -8,6 +8,8 @@ DELETE /api/users/company/countries/<country>/   remove one (name or ISO code)
 A country is stored by name, as everywhere else in the app. UAE and the UK
 keep the short names the app has always used ("UAE", "UK").
 """
+import unicodedata
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from drf_yasg import openapi
@@ -35,6 +37,13 @@ _TAGS = ['Company countries']
 _SHORT_NAME = {full: short for short, full in COUNTRY_ALIASES.items()}
 _FULL_NAME_BY_LOWER = {name.lower(): name for name in COUNTRY_CODE_MAP}
 _FULL_NAME_BY_LOWER.update({alias.lower(): full for alias, full in COUNTRY_ALIASES.items()})
+# Other spellings older data and the frontend use.
+_FULL_NAME_BY_LOWER.update({
+    'usa': 'United States',
+    'united states of america': 'United States',
+    'great britain': 'United Kingdom',
+    'emirates': 'United Arab Emirates',
+})
 
 
 def _full_name(value):
@@ -69,9 +78,15 @@ def country_entry(value):
     }
 
 
+def _sort_key(entry):
+    # "Côte d'Ivoire" sorts as "Cote d'Ivoire", next to Costa Rica.
+    plain = unicodedata.normalize('NFKD', entry['name']).encode('ascii', 'ignore').decode()
+    return plain.lower()
+
+
 ALL_COUNTRIES = sorted(
     (country_entry(country['name']) for country in COUNTRY_DATA),
-    key=lambda entry: entry['name'].lower(),
+    key=_sort_key,
 )
 
 _COUNTRY_SCHEMA = openapi.Schema(
@@ -85,12 +100,41 @@ _COUNTRY_SCHEMA = openapi.Schema(
 )
 _COMPANY_COUNTRIES_SCHEMA = openapi.Schema(
     type=openapi.TYPE_OBJECT,
-    properties={'countries': openapi.Schema(type=openapi.TYPE_ARRAY, items=_COUNTRY_SCHEMA)},
+    properties={
+        'countries': openapi.Schema(type=openapi.TYPE_ARRAY, items=_COUNTRY_SCHEMA),
+        'user': openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            description='The caller after the change (add / remove only).',
+            properties={
+                'countries': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_STRING)),
+                'current_country': openapi.Schema(type=openapi.TYPE_STRING),
+            },
+        ),
+    },
 )
 
+_ADMIN_ROLES = (User.Role.COMPANY_ADMIN, User.Role.AXIYON_ADMIN)
 
-def _company_payload(company):
-    return {'countries': [country_entry(name) for name in company.operating_countries or []]}
+
+def _company_payload(company, user=None):
+    # One entry per country, even when it is stored twice ("UK" and "United Kingdom").
+    entries, seen = [], set()
+    for stored in company.operating_countries or []:
+        entry = country_entry(stored)
+        key = entry['code'] or entry['name'].lower()
+        if key not in seen:
+            seen.add(key)
+            entries.append(entry)
+    payload = {'countries': entries}
+    if user is not None:
+        # The caller's own countries change too; send them so the app can
+        # update its country switcher without reloading the profile.
+        user.refresh_from_db(fields=['countries', 'current_country'])
+        payload['user'] = {
+            'countries': list(user.countries or []),
+            'current_country': user.current_country,
+        }
+    return payload
 
 
 def _no_company():
@@ -114,6 +158,9 @@ def _platform_company_refused():
 
 class CountryListView(APIView):
     """Every country the app supports, with its ISO code, dial code and currency."""
+    # Public data: a missing, expired or unpaid-company token must not get in
+    # the way (billing/guards.py exempts this path too).
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     @swagger_auto_schema(
@@ -197,7 +244,7 @@ class CompanyCountriesView(APIView):
                     admin.countries = [*countries, name]
                     admin.save(update_fields=['countries'])
 
-        return Response(_company_payload(company), status=status.HTTP_201_CREATED)
+        return Response(_company_payload(company, request.user), status=status.HTTP_201_CREATED)
 
 
 class CompanyCountryDetailView(APIView):
@@ -246,9 +293,13 @@ class CompanyCountryDetailView(APIView):
                 )
 
             users = list(company.users.select_for_update())
+            # Admins are never left without a country: they get the remaining
+            # ones below. Anyone else must have another country first.
             stranded = [
                 user.email for user in users
-                if user.countries and all(same_country(existing, name) for existing in user.countries)
+                if user.role not in _ADMIN_ROLES
+                and user.countries
+                and all(same_country(existing, name) for existing in user.countries)
             ]
             if stranded:
                 return Response(
@@ -268,6 +319,17 @@ class CompanyCountryDetailView(APIView):
             for user in users:
                 changed = []
                 countries = list(user.countries or [])
+                if user.role in _ADMIN_ROLES:
+                    # Admins work in every company country (older admins may
+                    # have been given fewer).
+                    missing = [
+                        country for country in remaining
+                        if not any(same_country(existing, country) for existing in countries)
+                    ]
+                    if missing:
+                        countries = countries + missing
+                        user.countries = countries
+                        changed.append('countries')
                 if any(same_country(existing, name) for existing in countries):
                     countries = [existing for existing in countries if not same_country(existing, name)]
                     user.countries = countries
@@ -278,4 +340,4 @@ class CompanyCountryDetailView(APIView):
                 if changed:
                     user.save(update_fields=changed)
 
-        return Response(_company_payload(company))
+        return Response(_company_payload(company, request.user))
