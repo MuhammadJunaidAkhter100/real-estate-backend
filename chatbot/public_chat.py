@@ -1,7 +1,7 @@
 """
 The website chatbot for visitors who are not logged in.
 
-It answers questions about Techfy from the public website facts only
+It answers questions about Nexusproperty from the public website facts only
 (chatbot/public_prompt.py). It has no tools, never touches the database and
 keeps no history on the server: the browser sends the latest turns with each
 message.

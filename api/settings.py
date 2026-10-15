@@ -306,6 +306,16 @@ FRONTEND_URL = config("FRONTEND_URL", cast=str)
 FRONTEND_LOGIN_URL = config("FRONTEND_LOGIN_URL", cast=str)
 APP_NAME = config("APP_NAME", cast=str)
 
+# Branding in the emails the platform sends. The site link defaults to the
+# site of FRONTEND_LOGIN_URL (FRONTEND_URL is localhost on some servers).
+EMAIL_BRAND_NAME = config("EMAIL_BRAND_NAME", default="Nexusproperty")
+EMAIL_SUPPORT_ADDRESS = config("EMAIL_SUPPORT_ADDRESS", default="hello@nexusproperty.io")
+EMAIL_SITE_URL = config(
+    "EMAIL_SITE_URL",
+    default=FRONTEND_LOGIN_URL.rstrip("/").removesuffix("/login") or FRONTEND_URL,
+)
+EMAIL_LOGO_URL = config("EMAIL_LOGO_URL", default=f"{EMAIL_SITE_URL.rstrip('/')}/logo.png")
+
 
 # ── Stripe ───────────────────────────────────────────────────────────────────
 # No secret or price ID is ever hardcoded; price selection happens server-side

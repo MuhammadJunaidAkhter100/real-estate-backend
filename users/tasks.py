@@ -1,6 +1,7 @@
 import io
 import csv
 import logging
+from email.utils import formataddr, parseaddr
 from urllib.parse import urlparse
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives
@@ -17,6 +18,39 @@ from billing.exceptions import PlanLimitReached
 from users.serializers import LeadSerializer, UserManagementSerializer
 
 User = get_user_model()
+
+
+def _brand() -> str:
+    return getattr(settings, 'EMAIL_BRAND_NAME', 'Nexusproperty')
+
+
+def _from_email() -> str:
+    """DEFAULT_FROM_EMAIL shown under the brand name, e.g.
+    ``Nexusproperty <noreply@...>``. Only the name changes: the address must
+    stay one the mail provider has verified."""
+    _name, address = parseaddr(settings.DEFAULT_FROM_EMAIL)
+    return formataddr((_brand(), address)) if address else settings.DEFAULT_FROM_EMAIL
+
+
+def _brand_context() -> dict:
+    """Brand name, links and logo shared by every email template."""
+    return {
+        "brand_name": _brand(),
+        "site_url": getattr(settings, 'EMAIL_SITE_URL', ''),
+        "login_url": getattr(settings, 'FRONTEND_LOGIN_URL', ''),
+        "support_email": getattr(settings, 'EMAIL_SUPPORT_ADDRESS', ''),
+        "logo_url": getattr(settings, 'EMAIL_LOGO_URL', ''),
+    }
+
+
+def _signature() -> str:
+    """Plain-text sign-off with the site link and support address."""
+    brand = _brand_context()
+    return (
+        f"Thanks,\nThe {brand['brand_name']} Team\n"
+        f"{brand['site_url']}\n"
+        f"Support: {brand['support_email']}"
+    )
 
 
 def _notification_recipients(user) -> list[str]:
@@ -37,9 +71,57 @@ def _notification_recipients(user) -> list[str]:
     return [user.email] if user.email else []
 
 
+@shared_task
+def send_admin_info_email(subject: str, lines: list):
+    """Tell the platform admin inbox (ADMIN_NOTIFICATION_EMAILS) that something
+    happened, e.g. a new company or user. Plain text, one fact per line."""
+    to = [
+        address.strip()
+        for address in getattr(settings, 'ADMIN_NOTIFICATION_EMAILS', [])
+        if address.strip()
+    ]
+    if not to:
+        return
+    body = "\n".join(str(line) for line in lines if line) + f"\n\n{_signature()}"
+    msg = EmailMultiAlternatives(
+        subject=f"{subject} – {_brand()}",
+        body=body,
+        from_email=_from_email(),
+        to=to,
+    )
+    try:
+        msg.send(fail_silently=False)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to send admin info email: %s", subject)
+
+
+def notify_admins(subject: str, lines: list) -> None:
+    """Queue an admin info email once the current transaction commits. Never
+    fails the caller: the action itself already succeeded."""
+    def _queue():
+        try:
+            send_admin_info_email.delay(subject, [str(line) for line in lines if line])
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not queue admin info email: %s", subject)
+
+    transaction.on_commit(_queue)
+
+
+def _person(user) -> str:
+    if user is None:
+        return ''
+    name = (user.full_name or '').strip()
+    return f"{name} <{user.email}>" if name else user.email
+
+
+def _role_name(user) -> str:
+    return dict(User.Role.choices).get(user.role, user.role)
+
+
 def send_otp_email(user, otp):
     """Send password reset OTP. Called synchronously from ForgotPasswordView."""
     context = {
+        **_brand_context(),
         "first_name": user.first_name,
         "otp": otp,
     }
@@ -49,12 +131,12 @@ def send_otp_email(user, otp):
         f"Your OTP for password reset is: {otp}\n\n"
         f"This OTP is valid for 5 minutes.\n\n"
         f"If you did not request this, please ignore this email.\n\n"
-        f"Thanks,\nThe Axiyon Team"
+        f"{_signature()}"
     )
     msg = EmailMultiAlternatives(
-        subject="Password Reset OTP – Axiyon",
+        subject=f"Password Reset OTP – {_brand()}",
         body=plain_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
+        from_email=_from_email(),
         to=[user.email],
     )
     msg.attach_alternative(html_body, "text/html")
@@ -99,6 +181,7 @@ def send_superadmin_created_account_email(user, plain_password, created_by):
     )[:2] or "?"
 
     context = {
+        **_brand_context(),
         "first_name": user.first_name,
         "email": user.email,
         "plain_password": plain_password,
@@ -123,13 +206,13 @@ def send_superadmin_created_account_email(user, plain_password, created_by):
         f"Role:     {role_display}\n\n"
         f"Please log in and change your password immediately:\n"
         f"{settings.FRONTEND_LOGIN_URL}\n\n"
-        f"Thanks,\nThe Axiyon Team"
+        f"{_signature()}"
     )
 
     msg = EmailMultiAlternatives(
-        subject="Your Axiyon Account is Ready",
+        subject=f"Your {_brand()} Account is Ready",
         body=plain_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
+        from_email=_from_email(),
         to=[user.email],
     )
     msg.attach_alternative(html_body, "text/html")
@@ -390,6 +473,12 @@ def import_users_csv(self, s3_key: str, requested_by_id: int):
                     'error': serializer.errors,
                 })
 
+        if results['created']:
+            notify_admins("Users imported", [
+                f"{results['created']} new user(s) were imported by CSV.",
+                f"Company: {requested_by.company.name if requested_by.company else '-'}",
+                f"Imported by: {_person(requested_by)} ({_role_name(requested_by)})",
+            ])
         return results
     finally:
         try:
@@ -589,7 +678,8 @@ def send_lead_project_missing_images_email(
             f"connect with the super admin so the relevant unit images can be "
             f"added.\n\n"
             f"Missing images: {keys_display}\n\n"
-            f"Thanks,\nThe Axiyon Team"
+            f"Log in: {settings.FRONTEND_LOGIN_URL}\n\n"
+            f"{_signature()}"
         )
     else:
         subject = f"Missing proposal images for project '{project.title}'"
@@ -601,13 +691,14 @@ def send_lead_project_missing_images_email(
             f"These units will not appear in the generated proposal until the "
             f"images are uploaded. Please add the missing images.\n\n"
             f"Missing images: {keys_display}\n\n"
-            f"Thanks,\nThe Axiyon Team"
+            f"Log in: {settings.FRONTEND_LOGIN_URL}\n\n"
+            f"{_signature()}"
         )
 
     msg = EmailMultiAlternatives(
         subject=subject,
         body=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
+        from_email=_from_email(),
         to=recipients,
     )
     try:
@@ -636,6 +727,7 @@ def send_task_expiring_24h_email(task):
     lead_name = task.related_lead.name if task.related_lead else None
 
     context = {
+        **_brand_context(),
         "first_name": user.first_name or "User",
         "task_name": task.name,
         "due_date_display": due_date_display,
@@ -649,14 +741,15 @@ def send_task_expiring_24h_email(task):
         f"Hi {user.first_name or 'User'},\n\n"
         f"Your task '{task.name}' is scheduled to expire in 24 hours.\n"
         f"Due Date/Time: {due_date_display or 'N/A'}\n\n"
-        f"Please log in to review and complete your task.\n\n"
-        f"Thanks,\nThe Axiyon Team"
+        f"Please log in to review and complete your task:\n"
+        f"{settings.FRONTEND_LOGIN_URL}\n\n"
+        f"{_signature()}"
     )
 
     msg = EmailMultiAlternatives(
-        subject=f"Task Expiring in 24 Hours: '{task.name}' – Axiyon",
+        subject=f"Task Expiring in 24 Hours: '{task.name}' – {_brand()}",
         body=plain_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
+        from_email=_from_email(),
         to=recipients,
     )
     msg.attach_alternative(html_body, "text/html")

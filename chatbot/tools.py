@@ -1,5 +1,5 @@
 """
-LangGraph tools for Axiyon.ai chatbot.
+LangGraph tools for the Nexusproperty chatbot.
 
 Single generic approach:
   - query_database(model, filters, limit) → handles ALL queries
@@ -225,7 +225,7 @@ def query_database(
     config: RunnableConfig = None,
 ) -> str:
     """
-    Query the Axiyon.ai real estate database. Use this for ALL data questions.
+    Query the Nexusproperty real estate database. Use this for ALL data questions.
 
     Available models:
       - "Project": live real estate projects

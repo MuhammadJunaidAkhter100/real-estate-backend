@@ -1,5 +1,5 @@
 """
-LangGraph chatbot service for Techfy.
+LangGraph chatbot service for Nexusproperty.
 
 Flow:
   1. classify_message  → greeting/off-topic  → instant_reply (no LLM)

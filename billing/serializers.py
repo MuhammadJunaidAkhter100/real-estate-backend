@@ -115,6 +115,17 @@ class RegisterCompanySerializer(serializers.Serializer):
                 company=company,
             )
 
+            from users.tasks import _person, notify_admins
+            notify_admins("New company signed up", [
+                f"Company: {company.name}",
+                f"Admin: {_person(admin_user)}",
+                f"Plan: {company.get_plan_display()} ({company.billing_interval})",
+                f"Status: {company.get_status_display()}",
+                f"Countries: {', '.join(company.operating_countries or []) or '-'}",
+                f"Website: {company.website or '-'}",
+                f"Phone: {company.phone or '-'}",
+            ])
+
             if company.website:
                 from users.tasks import scrape_company_website_task
 

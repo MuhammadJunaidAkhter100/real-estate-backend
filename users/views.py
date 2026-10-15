@@ -754,6 +754,14 @@ class AdminCompanyViewSet(viewsets.ModelViewSet):
 
         # Email credentials to the newly created admin. Reused admins already have
         # an account and do not need a brand-new password email.
+        from users.tasks import _person, notify_admins
+        notify_admins("New company created", [
+            f"Company: {company.name}",
+            f"Admin: {_person(getattr(company, '_admin_user', None))}",
+            f"Countries: {', '.join(company.operating_countries or []) or '-'}",
+            f"Created by: {_person(self.request.user)}",
+        ])
+
         if company._admin_plain_password:
             send_superadmin_created_account_email(
                 company._admin_user,
@@ -865,6 +873,14 @@ class UsersViewSet(viewsets.ModelViewSet):
             user = serializer.save()
             user.set_password(plain_password)
             user.save(update_fields=['password'])
+
+        from users.tasks import _person, _role_name, notify_admins
+        notify_admins("New user added", [
+            f"User: {_person(user)}",
+            f"Role: {_role_name(user)}",
+            f"Company: {user.company.name if user.company else '-'}",
+            f"Added by: {_person(self.request.user)} ({_role_name(self.request.user)})",
+        ])
         send_superadmin_created_account_email(user, plain_password, self.request.user)
 
     # ------------------------------------------------------------------ #

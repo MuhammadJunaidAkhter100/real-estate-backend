@@ -218,7 +218,7 @@ class PublicChatStreamView(APIView):
     POST /api/chatbot/public/stream/
 
     The website chatbot for visitors who are not logged in. Answers questions
-    about Techfy (features, services, pricing, onboarding, contact) from the
+    about Nexusproperty (features, services, pricing, onboarding, contact) from the
     public website only. No login, no tools, no data access, nothing saved on
     the server: the browser keeps the conversation and sends the latest turns.
     """
@@ -248,7 +248,7 @@ class PublicChatStreamView(APIView):
             "Website chatbot for visitors who are not logged in. Streams the reply as "
             "Server-Sent Events, in the same format as `/api/chatbot/stream/`.\n\n"
             "- No login (send no Authorization header).\n"
-            "- Answers only about Techfy from the public website: features, services, "
+            "- Answers only about Nexusproperty from the public website: features, services, "
             "pricing, onboarding, contact. It has no access to any company's data and "
             "cannot create proposals, leads or tasks.\n"
             "- Nothing is saved on the server. Send the conversation so far in "
@@ -302,7 +302,7 @@ class PublicChatStreamView(APIView):
         if not PublicChatGlobalThrottle().allow_request(request, self):
             return Response(
                 {'detail': 'The website assistant is busy right now. Please try again later, '
-                           'or email hello@techfy.io.'},
+                           'or email hello@nexusproperty.io.'},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
