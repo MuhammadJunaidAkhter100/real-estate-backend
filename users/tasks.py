@@ -19,6 +19,24 @@ from users.serializers import LeadSerializer, UserManagementSerializer
 User = get_user_model()
 
 
+def _notification_recipients(user) -> list[str]:
+    """
+    Addresses for a notification email meant for ``user``. Mail for a
+    superadmin goes to the admin inbox (ADMIN_NOTIFICATION_EMAILS) instead of
+    the superadmin account's address, when one is configured.
+    Not for login emails: an OTP or password must only reach its owner.
+    """
+    if user.role == User.Role.SUPERADMIN:
+        admin_inbox = [
+            address.strip()
+            for address in getattr(settings, 'ADMIN_NOTIFICATION_EMAILS', [])
+            if address.strip()
+        ]
+        if admin_inbox:
+            return admin_inbox
+    return [user.email] if user.email else []
+
+
 def send_otp_email(user, otp):
     """Send password reset OTP. Called synchronously from ForgotPasswordView."""
     context = {
@@ -546,7 +564,8 @@ def send_lead_project_missing_images_email(
     from users.models import Lead
 
     user = User.objects.filter(pk=user_id).first()
-    if not user or not user.email:
+    recipients = _notification_recipients(user) if user else []
+    if not recipients:
         return
 
     lead = Lead.objects.filter(pk=lead_id).first()
@@ -589,13 +608,13 @@ def send_lead_project_missing_images_email(
         subject=subject,
         body=body,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
+        to=recipients,
     )
     try:
         msg.send(fail_silently=False)
     except Exception:  # noqa: BLE001
         logger.exception(
-            "Failed to send lead-project missing-images email to %s", user.email
+            "Failed to send lead-project missing-images email to %s", recipients
         )
 
 
@@ -604,7 +623,8 @@ def send_task_expiring_24h_email(task):
     Send an email notification to the task creator that the task will expire in 24 hours.
     """
     user = task.created_by
-    if not user or not user.email:
+    recipients = _notification_recipients(user) if user else []
+    if not recipients:
         return
 
     due_date_display = None
@@ -637,13 +657,13 @@ def send_task_expiring_24h_email(task):
         subject=f"Task Expiring in 24 Hours: '{task.name}' – Axiyon",
         body=plain_body,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
+        to=recipients,
     )
     msg.attach_alternative(html_body, "text/html")
     try:
         msg.send(fail_silently=False)
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to send 24h task expiration email for task_id=%s to %s", task.id, user.email)
+        logger.exception("Failed to send 24h task expiration email for task_id=%s to %s", task.id, recipients)
 
 
 @shared_task

@@ -297,6 +297,11 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS", cast=bool)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", cast=bool)
 
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", cast=str)
+# Inbox that receives the notification emails meant for a superadmin, instead
+# of the superadmin account's address (comma-separated). Login emails (OTP, new
+# account password) still go only to the account owner.
+ADMIN_NOTIFICATION_EMAILS = config(
+    "ADMIN_NOTIFICATION_EMAILS", default="umer45769@gmail.com", cast=Csv())
 FRONTEND_URL = config("FRONTEND_URL", cast=str)
 FRONTEND_LOGIN_URL = config("FRONTEND_LOGIN_URL", cast=str)
 APP_NAME = config("APP_NAME", cast=str)
