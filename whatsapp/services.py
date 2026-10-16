@@ -1014,7 +1014,7 @@ class WhatsAppService:
 
         relevant_matches = [
             match for match in matches
-            if (match.get("score") or 0) >= 0.50 and (match.get("text") or "").strip()
+            if (match.get("score") or 0) >= 0.10 and (match.get("text") or "").strip()
         ]
         best_score = max((match.get("score") or 0 for match in matches), default=0)
         logger.info(
