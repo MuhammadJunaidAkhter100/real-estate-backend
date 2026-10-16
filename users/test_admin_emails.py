@@ -14,6 +14,9 @@ from users.tasks import (
     send_otp_email,
     send_task_expiring_24h_email,
 )
+from whatsapp.models import WhatsAppAccount
+from whatsapp.services import WhatsAppService
+from whatsapp.tasks import send_company_admin_welcome_task
 
 ADMIN_INBOX = 'admin-inbox@techfy.test'
 
@@ -150,16 +153,20 @@ class AdminInfoEmailTests(TestCase):
     def admin_mails(self):
         return [m for m in mail.outbox if m.to == [ADMIN_INBOX]]
 
+    @patch('whatsapp.tasks.send_company_admin_welcome_task.delay')
     @patch('users.tasks.scrape_company_website_task.delay')
-    def test_company_signup_is_reported(self, _scrape):
+    def test_company_signup_is_reported(self, _scrape, welcome_task):
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post('/api/auth/register-company/', {
                 'company_name': 'Sunrise Realty', 'countries': ['UAE', 'UK'],
                 'first_name': 'Sara', 'last_name': 'Khan', 'email': 'sara@sunrise.test',
                 'password': 'Str0ngPass!23', 'plan': 'basic', 'interval': 'monthly',
+                'phone': '+971 50 123 4567',
             }, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
+        admin = User.objects.get(email='sara@sunrise.test')
+        welcome_task.assert_called_once_with(admin.company_id, admin.pk, None)
         [message] = self.admin_mails()
         self.assertEqual(message.subject, 'New company signed up – Nexusproperty')
         self.assertIn('Company: Sunrise Realty', message.body)
@@ -167,21 +174,51 @@ class AdminInfoEmailTests(TestCase):
         self.assertIn('Countries: UAE, UK', message.body)
         self.assertIn('Status: Active', message.body)
 
+    @patch('whatsapp.tasks.send_company_admin_welcome_task.delay')
     @patch('users.views.send_superadmin_created_account_email')
-    def test_company_created_by_superadmin_is_reported(self, _welcome):
+    def test_company_created_by_superadmin_is_reported(self, _welcome_email, welcome_task):
         self.client.force_authenticate(self.superadmin)
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post('/api/users/super_admin_companies/', {
-                'name': 'Beta Homes', 'operating_countries': ['UAE'],
+                'name': 'Beta Homes', 'phone': '+971501234567', 'operating_countries': ['UAE'],
                 'admin': {'email': 'admin@beta.test', 'first_name': 'Bob', 'last_name': 'Beta'},
             }, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
+        admin = User.objects.get(email='admin@beta.test')
+        welcome_task.assert_called_once_with(admin.company_id, admin.pk, self.superadmin.pk)
         [message] = self.admin_mails()
         self.assertEqual(message.subject, 'New company created – Nexusproperty')
         self.assertIn('Company: Beta Homes', message.body)
         self.assertIn('Admin: Bob Beta <admin@beta.test>', message.body)
         self.assertIn('Created by: Root User <root@techfy.test>', message.body)
+
+    @patch.object(WhatsAppService, 'send_text_message')
+    @patch.object(WhatsAppService, 'check_number_exists', return_value={
+        'status': 'success', 'numberExists': True, 'chatId': '971501234567@c.us',
+    })
+    def test_company_welcome_checks_number_and_sends_from_superadmin(self, check_number, send_text):
+        company = Company.objects.create(name='Welcome Realty', phone='+971 50 123 4567')
+        admin = User.objects.create_user(
+            email='welcome@realty.test', first_name='Wafa', last_name='Admin',
+            password='password123', company=company, role=User.Role.COMPANY_ADMIN,
+        )
+        WhatsAppAccount.objects.create(
+            user=self.superadmin, session_name='root-wa', session_status='WORKING',
+        )
+
+        result = send_company_admin_welcome_task.run(company.pk, admin.pk, self.superadmin.pk)
+
+        self.assertEqual(result['status'], 'sent')
+        check_number.assert_called_once_with(self.superadmin, company.phone)
+        send_text.assert_called_once_with(
+            user=self.superadmin,
+            payload={
+                'chat_id': '971501234567@c.us',
+                'text': 'Hi Wafa, welcome to Nexusproperty! Your company admin account for '
+                'Welcome Realty is ready. You can now log in and get started.',
+            },
+        )
 
     @patch('users.views.send_superadmin_created_account_email')
     def test_user_added_is_reported(self, _welcome):

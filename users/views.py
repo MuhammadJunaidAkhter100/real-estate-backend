@@ -752,6 +752,14 @@ class AdminCompanyViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         company = serializer.save()
 
+        from whatsapp.tasks import queue_company_admin_welcome
+
+        queue_company_admin_welcome(
+            company.pk,
+            company._admin_user.pk,
+            self.request.user.pk,
+        )
+
         # Email credentials to the newly created admin. Reused admins already have
         # an account and do not need a brand-new password email.
         from users.tasks import _person, notify_admins

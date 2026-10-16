@@ -3,6 +3,7 @@ from typing import Any
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 from whatsapp.services import WhatsAppService
 from django.utils import timezone
@@ -34,4 +35,89 @@ def sync_chats_and_messages_task(self, user_id: int) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.exception("whatsapp.sync: failed for user %s", user_id)
         return {"status": "error", "message": str(exc), "chats_synced": 0, "messages_synced": 0}
+
+
+@shared_task(name="whatsapp.auto_reply_from_kb")
+def auto_reply_from_kb_task(account_id: int, chat_id: int, text: str) -> dict[str, Any]:
+    """Generate and send a KB-grounded reply outside the webhook request."""
+    from whatsapp.models import WhatsAppAccount, WhatsAppChat
+
+    account = WhatsAppAccount.objects.select_related("user").filter(pk=account_id).first()
+    if not account:
+        return {"status": "account_not_found"}
+
+    chat = WhatsAppChat.objects.filter(pk=chat_id, account=account).first()
+    if not chat:
+        return {"status": "chat_not_found"}
+
+    try:
+        result = WhatsAppService()._maybe_auto_reply_from_kb(account, chat, text)
+        return result or {"status": "skipped"}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("whatsapp.auto_reply: failed for account %s, chat %s", account_id, chat_id)
+        return {"status": "error", "message": str(exc)}
+
+
+@shared_task(name="whatsapp.send_company_admin_welcome")
+def send_company_admin_welcome_task(
+    company_id: int,
+    admin_id: int,
+    sender_user_id: int | None = None,
+) -> dict[str, Any]:
+    """Send a welcome message to a company phone using a superadmin session."""
+    from users.models import Company, User
+    from whatsapp.models import WhatsAppAccount
+
+    company = Company.objects.filter(pk=company_id).first()
+    admin = User.objects.filter(pk=admin_id, company_id=company_id).first()
+    if not company or not admin:
+        return {"status": "company_or_admin_not_found"}
+
+    if not company.phone.strip():
+        return {"status": "phone_missing"}
+
+    sender_accounts = WhatsAppAccount.objects.filter(
+        user__role=User.Role.SUPERADMIN,
+        session_status__iexact="WORKING",
+    ).select_related("user")
+    if sender_user_id:
+        sender_accounts = sender_accounts.filter(user_id=sender_user_id)
+    sender_account = sender_accounts.order_by("created_at").first()
+    if not sender_account:
+        return {"status": "superadmin_whatsapp_not_connected"}
+
+    service = WhatsAppService()
+    number_result = service.check_number_exists(sender_account.user, company.phone)
+    if number_result.get("status") != "success" or number_result.get("numberExists") is not True:
+        return {"status": "number_not_on_whatsapp", "check": number_result}
+
+    chat_id = number_result.get("chatId")
+    if not chat_id:
+        return {"status": "whatsapp_chat_id_missing"}
+
+    first_name = admin.first_name.strip() or "there"
+    welcome_text = (
+        f"Hi {first_name}, welcome to Nexusproperty! Your company admin account for "
+        f"{company.name} is ready. You can now log in and get started."
+    )
+    result = service.send_text_message(
+        user=sender_account.user,
+        payload={"chat_id": chat_id, "text": welcome_text},
+    )
+    return {"status": "sent", "result": result}
+
+
+def queue_company_admin_welcome(
+    company_id: int,
+    admin_id: int,
+    sender_user_id: int | None = None,
+) -> None:
+    """Queue the welcome only after company creation commits successfully."""
+    def _queue() -> None:
+        try:
+            send_company_admin_welcome_task.delay(company_id, admin_id, sender_user_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not queue WhatsApp welcome for company %s", company_id)
+
+    transaction.on_commit(_queue)
 

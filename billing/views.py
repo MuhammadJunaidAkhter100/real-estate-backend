@@ -71,6 +71,10 @@ class RegisterCompanyView(GenericAPIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        from whatsapp.tasks import queue_company_admin_welcome
+
+        queue_company_admin_welcome(company.pk, admin_user.pk)
+
         payload = {
             'company_id': company.id,
             'status': company.status,
