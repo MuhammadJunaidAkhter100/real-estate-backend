@@ -964,6 +964,11 @@ class WhatsAppService:
         """Classify an incoming message and reply from the KB when relevant."""
         query = (text or "").strip()
         if not query:
+            logger.info(
+                "WhatsApp auto-reply skipped: empty message account_id=%s chat_id=%s",
+                account.pk,
+                chat.pk,
+            )
             return None
 
         try:
@@ -988,18 +993,38 @@ class WhatsAppService:
                 )),
                 HumanMessage(content=query[:2000]),
             ]).content
-            if str(classification).strip().upper().strip(" .,!?") != "YES":
+            is_real_estate = str(classification).strip().upper().strip(" .,!?") == "YES"
+            logger.info(
+                "WhatsApp auto-reply classification complete account_id=%s chat_id=%s real_estate=%s",
+                account.pk,
+                chat.pk,
+                is_real_estate,
+            )
+            if not is_real_estate:
                 return None
 
             matches = PineconeService().search(query, top_k=5)
         except Exception:
-            logger.exception("Failed to classify or search KB for WhatsApp auto-reply")
+            logger.exception(
+                "WhatsApp auto-reply classification or KB search failed account_id=%s chat_id=%s",
+                account.pk,
+                chat.pk,
+            )
             return None
 
         relevant_matches = [
             match for match in matches
             if (match.get("score") or 0) >= 0.50 and (match.get("text") or "").strip()
         ]
+        best_score = max((match.get("score") or 0 for match in matches), default=0)
+        logger.info(
+            "WhatsApp auto-reply KB search complete account_id=%s chat_id=%s matches=%s relevant_matches=%s best_score=%s threshold=0.50",
+            account.pk,
+            chat.pk,
+            len(matches),
+            len(relevant_matches),
+            best_score,
+        )
         if not relevant_matches:
             return None
 
@@ -1023,20 +1048,42 @@ class WhatsAppService:
                 )),
             ]).content
         except Exception:
-            logger.exception("Failed to generate WhatsApp KB reply")
+            logger.exception(
+                "WhatsApp auto-reply generation failed account_id=%s chat_id=%s",
+                account.pk,
+                chat.pk,
+            )
             return None
 
         answer = str(answer or "").strip()
         if not answer:
+            logger.warning(
+                "WhatsApp auto-reply generated an empty answer account_id=%s chat_id=%s",
+                account.pk,
+                chat.pk,
+            )
             return None
 
-        return self.send_text_message(
+        logger.info(
+            "WhatsApp auto-reply generated account_id=%s chat_id=%s answer_length=%s",
+            account.pk,
+            chat.pk,
+            len(answer),
+        )
+        result = self.send_text_message(
             user=account.user,
             payload={
                 "chat_id": chat.chat_id,
                 "text": answer,
             },
         )
+        logger.info(
+            "WhatsApp auto-reply send completed account_id=%s chat_id=%s status=%s",
+            account.pk,
+            chat.pk,
+            result.get("status", "unknown"),
+        )
+        return result
 
     def send_image_message(self, user: Any, payload: dict[str, Any]) -> dict[str, Any]:
         """Send an image through WhatsApp."""
@@ -2946,9 +2993,21 @@ class WhatsAppService:
                 try:
                     from whatsapp.tasks import auto_reply_from_kb_task
 
-                    auto_reply_from_kb_task.delay(account.pk, chat.pk, text_to_reply)
+                    queued_task = auto_reply_from_kb_task.delay(account.pk, chat.pk, text_to_reply)
+                    logger.info(
+                        "WhatsApp auto-reply queued account_id=%s chat_id=%s message_id=%s task_id=%s",
+                        account.pk,
+                        chat.pk,
+                        message.message_id,
+                        queued_task.id,
+                    )
                 except Exception:  # pragma: no cover - defensive guard
-                    logger.exception("Failed to queue WhatsApp KB auto-reply for chat %s", chat.chat_id)
+                    logger.exception(
+                        "Failed to queue WhatsApp KB auto-reply account_id=%s chat_id=%s message_id=%s",
+                        account.pk,
+                        chat.pk,
+                        message.message_id,
+                    )
 
         # -------------------------------------------------------
         # Response

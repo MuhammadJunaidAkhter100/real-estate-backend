@@ -43,17 +43,43 @@ def auto_reply_from_kb_task(account_id: int, chat_id: int, text: str) -> dict[st
     """Generate and send a KB-grounded reply outside the webhook request."""
     from whatsapp.models import WhatsAppAccount, WhatsAppChat
 
+    logger.info(
+        "whatsapp.auto_reply: task started account_id=%s chat_id=%s message_length=%s",
+        account_id,
+        chat_id,
+        len(text or ""),
+    )
     account = WhatsAppAccount.objects.select_related("user").filter(pk=account_id).first()
     if not account:
+        logger.warning("whatsapp.auto_reply: account not found account_id=%s", account_id)
         return {"status": "account_not_found"}
 
     chat = WhatsAppChat.objects.filter(pk=chat_id, account=account).first()
     if not chat:
+        logger.warning(
+            "whatsapp.auto_reply: chat not found account_id=%s chat_id=%s",
+            account_id,
+            chat_id,
+        )
         return {"status": "chat_not_found"}
 
     try:
         result = WhatsAppService()._maybe_auto_reply_from_kb(account, chat, text)
-        return result or {"status": "skipped"}
+        if result is None:
+            logger.info(
+                "whatsapp.auto_reply: skipped account_id=%s chat_id=%s",
+                account_id,
+                chat_id,
+            )
+            return {"status": "skipped"}
+
+        logger.info(
+            "whatsapp.auto_reply: finished account_id=%s chat_id=%s send_status=%s",
+            account_id,
+            chat_id,
+            result.get("status", "unknown"),
+        )
+        return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("whatsapp.auto_reply: failed for account %s, chat %s", account_id, chat_id)
         return {"status": "error", "message": str(exc)}
