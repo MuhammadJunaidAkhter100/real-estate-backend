@@ -3,6 +3,7 @@ from typing import Any
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.db import transaction
 
 from whatsapp.services import WhatsAppService
@@ -96,10 +97,25 @@ def send_company_admin_welcome_task(
         return {"status": "whatsapp_chat_id_missing"}
 
     first_name = admin.first_name.strip() or "there"
-    welcome_text = (
-        f"Hi {first_name}, welcome to Nexusproperty! Your company admin account for "
-        f"{company.name} is ready. You can now log in and get started."
-    )
+    welcome_lines = [
+        f"Hello {first_name},",
+        "",
+        f"Welcome to Nexusproperty. The company admin account for {company.name} is ready.",
+    ]
+    if company.website.strip():
+        welcome_lines.extend([
+            "",
+            f"We've started processing the website you shared: {company.website}",
+            "This will help us prepare your workspace with your company's information.",
+        ])
+    welcome_lines.extend([
+        "",
+        f"Log in to your account: {settings.FRONTEND_LOGIN_URL}",
+        "",
+        "We're glad to have you with us.",
+        "Nexusproperty Team",
+    ])
+    welcome_text = "\n".join(welcome_lines)
     result = service.send_text_message(
         user=sender_account.user,
         payload={"chat_id": chat_id, "text": welcome_text},

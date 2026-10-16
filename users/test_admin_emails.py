@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import mail
 from django.test import TestCase, override_settings
 
@@ -198,7 +199,11 @@ class AdminInfoEmailTests(TestCase):
         'status': 'success', 'numberExists': True, 'chatId': '971501234567@c.us',
     })
     def test_company_welcome_checks_number_and_sends_from_superadmin(self, check_number, send_text):
-        company = Company.objects.create(name='Welcome Realty', phone='+971 50 123 4567')
+        company = Company.objects.create(
+            name='Welcome Realty',
+            phone='+971 50 123 4567',
+            website='https://welcome-realty.test',
+        )
         admin = User.objects.create_user(
             email='welcome@realty.test', first_name='Wafa', last_name='Admin',
             password='password123', company=company, role=User.Role.COMPANY_ADMIN,
@@ -215,8 +220,15 @@ class AdminInfoEmailTests(TestCase):
             user=self.superadmin,
             payload={
                 'chat_id': '971501234567@c.us',
-                'text': 'Hi Wafa, welcome to Nexusproperty! Your company admin account for '
-                'Welcome Realty is ready. You can now log in and get started.',
+                'text': (
+                    'Hello Wafa,\n\n'
+                    'Welcome to Nexusproperty. The company admin account for Welcome Realty is ready.\n\n'
+                    "We've started processing the website you shared: https://welcome-realty.test\n"
+                    "This will help us prepare your workspace with your company's information.\n\n"
+                    f'Log in to your account: {settings.FRONTEND_LOGIN_URL}\n\n'
+                    "We're glad to have you with us.\n"
+                    'Nexusproperty Team'
+                ),
             },
         )
 
