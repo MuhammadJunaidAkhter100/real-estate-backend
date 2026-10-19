@@ -1,4 +1,4 @@
-# Django API Project Template  
+# Django API Project Template   
 
 This repository is a reusable template for initializing Django API projects. It comes pre-configured with essential packages for building robust, secure, and scalable REST APIs.
 
