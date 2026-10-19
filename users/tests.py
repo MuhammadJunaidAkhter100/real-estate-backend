@@ -602,6 +602,7 @@ class ScrapedProjectCreationTestCase(TestCase):
         mock_image_task.assert_called_with(
             project.pk,
             'https://legacyinvestmentconsultancy.com/img/london-house.jpg',
+            'exterior',
         )
 
     @patch('projects.tasks.default_storage.exists', return_value=False)

@@ -2359,3 +2359,173 @@ class LeadViewSet(viewsets.ModelViewSet):
             'recent_transactions': transactions_data,
             'leads': transactions_data,
         })
+
+
+class CompanyScrapingStatusView(APIView):
+    """
+    Real-time scraping status and progress bar endpoint.
+    Reports progress percentage (0-100%), current stage, project counts,
+    and knowledge base status.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Website Scraping'],
+        operation_summary="Get Company Scraping Progress",
+        operation_description=(
+            "Returns live scraping progress (0-100%), current status, stage description, "
+            "and counts for frontend progress bar display.\n\n"
+            "Superadmin can inspect any company by passing `?company_id=...`."
+        ),
+        manual_parameters=[
+            openapi.Parameter(
+                'company_id',
+                openapi.IN_QUERY,
+                description="Optional company ID (Superadmin only)",
+                type=openapi.TYPE_INTEGER,
+                required=False,
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Scraping progress and status",
+                examples={
+                    "application/json": {
+                        "status": "processing",
+                        "progress": 65,
+                        "stage": "Extracting details for Cloud9 Evolution (3/6)...",
+                        "website": "https://example.com",
+                        "total_projects": 6,
+                        "projects_created_or_updated": 3,
+                        "knowledge_base_status": "completed",
+                        "error": None,
+                        "updated_at": "2026-10-19T10:15:30Z"
+                    }
+                }
+            ),
+            404: "Company not found",
+        }
+    )
+    def get(self, request):
+        company = None
+        user = request.user
+
+        if user.role == User.Role.SUPERADMIN and request.query_params.get('company_id'):
+            try:
+                company = Company.objects.filter(pk=int(request.query_params.get('company_id'))).first()
+            except (ValueError, TypeError):
+                company = None
+
+        if not company:
+            company = getattr(user, 'company', None)
+
+        if not company:
+            return Response(
+                {'detail': 'No company associated with this account.', 'status': 'not_started', 'progress': 0},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = company.website_data if isinstance(company.website_data, dict) else {}
+        status_val = company.website_scrape_status or data.get('status') or 'not_started'
+        progress_val = data.get('progress', 0)
+        stage_val = data.get('stage', '')
+
+        if status_val == 'completed' and not progress_val:
+            progress_val = 100
+        elif status_val == 'empty' and not progress_val:
+            progress_val = 0
+            stage_val = stage_val or 'No website configured'
+
+        # Check knowledge base document status
+        from chatbot.models import KnowledgeBaseDocument
+        kb_doc = KnowledgeBaseDocument.objects.filter(
+            user__company=company,
+            source=KnowledgeBaseDocument.Source.WEBSITE,
+        ).first()
+        kb_status = kb_doc.status if kb_doc else 'not_started'
+
+        total_projects = (
+            data.get('total_projects')
+            or data.get('projects_created_or_updated')
+            or len(data.get('projects') or [])
+        )
+        projects_created = data.get('projects_created_or_updated', 0)
+
+        return Response({
+            'status': status_val,
+            'progress': progress_val,
+            'stage': stage_val or ('Completed' if status_val == 'completed' else 'Idle'),
+            'website': company.website or '',
+            'total_projects': total_projects,
+            'projects_created_or_updated': projects_created,
+            'knowledge_base_status': kb_status,
+            'error': data.get('error'),
+            'updated_at': company.updated_at,
+        }, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        tags=['Website Scraping'],
+        operation_summary="Trigger/Restart Website Scraping",
+        operation_description="Manually triggers or restarts website scraping and knowledge base import for the company.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'website': openapi.Schema(type=openapi.TYPE_STRING, description="Optional website URL to update before scraping"),
+                'company_id': openapi.Schema(type=openapi.TYPE_INTEGER, description="Optional company ID (Superadmin only)"),
+            }
+        ),
+        responses={
+            202: "Scraping initiated",
+            400: "No website available",
+            404: "Company not found",
+        }
+    )
+    def post(self, request):
+        company = None
+        user = request.user
+
+        company_id_param = request.data.get('company_id') or request.query_params.get('company_id')
+        if user.role == User.Role.SUPERADMIN and company_id_param:
+            try:
+                company = Company.objects.filter(pk=int(company_id_param)).first()
+            except (ValueError, TypeError):
+                company = None
+
+        if not company:
+            company = getattr(user, 'company', None)
+
+        if not company:
+            return Response({'detail': 'No company found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        website_input = (request.data.get('website') or '').strip()
+        if website_input:
+            company.website = website_input
+            company.save(update_fields=['website', 'updated_at'])
+
+        if not company.website:
+            return Response(
+                {'detail': 'Company has no website to scrape. Please provide a website URL.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        company.website_scrape_status = 'processing'
+        company.website_data = {
+            'status': 'processing',
+            'progress': 5,
+            'stage': 'Scraping initiated...',
+            'total_projects': 0,
+            'projects_created_or_updated': 0,
+        }
+        company.save(update_fields=['website_scrape_status', 'website_data'])
+
+        from users.tasks import scrape_company_website_task
+        scrape_company_website_task.delay(company.pk, company.website)
+
+        return Response({
+            'detail': 'Website scraping and knowledge base import started.',
+            'status': 'processing',
+            'progress': 5,
+            'stage': 'Scraping initiated...',
+            'website': company.website,
+        }, status=status.HTTP_202_ACCEPTED)
+

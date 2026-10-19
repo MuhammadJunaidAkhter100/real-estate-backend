@@ -6,6 +6,7 @@ from users.property_news import GulfNewsPropertyView, KhaleejTimesPropertyView, 
 from users.views import (
     AdminCompanyViewSet,
     CommissionAnalyticsView,
+    CompanyScrapingStatusView,
     DashboardSummaryView,
     LatestCommissionsView,
     LeadViewSet,
@@ -33,6 +34,7 @@ urlpatterns = [
     path('countries/', CountryListView.as_view(), name='countries'),
     path('company/countries/', CompanyCountriesView.as_view(), name='company-countries'),
     path('company/countries/<str:country>/', CompanyCountryDetailView.as_view(), name='company-country-detail'),
+    path('company/scraping-status/', CompanyScrapingStatusView.as_view(), name='company-scraping-status'),
 ]
 
 urlpatterns += router.urls

@@ -330,26 +330,69 @@ def scrape_company_website_task(self, company_id: int, website: str):
         company.save(update_fields=['website_scrape_status'])
         return {'status': 'missing_website', 'projects': []}
 
+    def _update_progress(progress_pct: int, stage_text: str, extra: dict | None = None):
+        try:
+            curr_data = company.website_data if isinstance(company.website_data, dict) else {}
+            curr_data['progress'] = min(max(progress_pct, 0), 100)
+            curr_data['stage'] = stage_text
+            curr_data['status'] = 'completed' if progress_pct >= 100 else 'processing'
+            if extra:
+                curr_data.update(extra)
+            company.website_scrape_status = 'completed' if progress_pct >= 100 else 'processing'
+            company.website_data = curr_data
+            company.save(update_fields=['website_scrape_status', 'website_data'])
+        except Exception:
+            logger.exception("Failed to update scraping progress for company_id=%s", company_id)
+
+    _update_progress(5, 'Connecting to website and validating address...')
+
     # The same website also feeds the knowledge base ("Website Data.txt").
     # Queued as its own task so a problem there never stops the project import.
     try:
         from chatbot.tasks import import_company_website_knowledge
 
+        _update_progress(20, 'Reading website pages for AI knowledge base...')
         import_company_website_knowledge.delay(company.pk, normalized_website)
     except Exception:
         logger.exception(
             'Failed to queue website knowledge import for company_id=%s', company_id)
 
-    report = scrape_company_website(normalized_website)
+    _update_progress(35, 'Discovering real estate development projects...')
+
+    def on_project_progress(current, total, project_name):
+        pct = 35 + int((current / max(total, 1)) * 45)
+        _update_progress(
+            pct,
+            f"Extracting details for {project_name} ({current}/{total})...",
+            extra={'total_projects': total},
+        )
+
+    try:
+        report = scrape_company_website(normalized_website, on_progress=on_project_progress)
+    except Exception as exc:
+        logger.exception("Scraping failed for company_id=%s: %s", company_id, exc)
+        _update_progress(100, 'Scraping failed', extra={'status': 'failed', 'error': str(exc)})
+        return {'status': 'failed', 'error': str(exc), 'projects': []}
+
+    if report.get('status') == 'failed':
+        err = report.get('error') or 'Scraping failed'
+        logger.error("Scraping returned failure for company_id=%s: %s", company_id, err)
+        _update_progress(100, f'Scraping failed: {err}', extra={'status': 'failed', 'error': err, 'total_projects': 0})
+        return report
+
+    if report.get('status') == 'empty' or not report.get('projects'):
+        logger.info("No projects found on website for company_id=%s", company_id)
+        _update_progress(100, 'No projects found on website.', extra={'status': 'empty', 'total_projects': 0, 'projects_created_or_updated': 0, 'error': None})
+        return report
+
     company_admin = company.users.filter(role='company_admin').order_by('pk').first()
     project_creator = company_admin or company.users.order_by('pk').first()
     saved_project_ids = []
     seen_source_urls = set()
+    raw_projects = [p for p in report.get('projects', []) if isinstance(p, dict)]
+    total_projects = len(raw_projects)
 
-    for scraped_project in report.get('projects', []):
-        if not isinstance(scraped_project, dict):
-            continue
-
+    for idx, scraped_project in enumerate(raw_projects, 1):
         title = scraped_project.get('name') or scraped_project.get('title')
         source_url = scraped_project.get('detail_page_url') or scraped_project.get('url')
         if not isinstance(title, str) or not isinstance(source_url, str):
@@ -367,20 +410,30 @@ def scrape_company_website_task(self, company_id: int, website: str):
             continue
 
         seen_source_urls.add(source_url)
+        save_pct = 80 + int((idx / max(total_projects, 1)) * 18)
+        _update_progress(save_pct, f"Saving project and exterior image: {title} ({idx}/{total_projects})...")
+
         project = Project.objects.filter(
             visible_to_companies=company,
             source_url=source_url,
         ).first()
         image_url = scraped_project.get('image_url')
 
+        description = str(scraped_project.get('description') or '').strip()
+        location = str(scraped_project.get('location') or '').strip()[:255]
+        developer = str(scraped_project.get('developer') or '').strip()[:255]
+        starting_price = scraped_project.get('starting_price') or 0
+        currency = str(scraped_project.get('currency') or '').strip()[:3].upper()
+
         if project is None:
             project = Project.objects.create(
                 title=title,
                 source_url=source_url,
-                description='',
-                location='',
-                developer='',
-                starting_price=0,
+                description=description,
+                location=location,
+                developer=developer,
+                starting_price=starting_price,
+                currency=currency,
                 yield_percentage=None,
                 project_type=Project.ProjectType.RESIDENTIAL,
                 status=Project.Status.PLANNED,
@@ -392,6 +445,21 @@ def scrape_company_website_task(self, company_id: int, website: str):
             if project.title != title:
                 project.title = title
                 fields_to_update.append('title')
+            if not project.description and description:
+                project.description = description
+                fields_to_update.append('description')
+            if not project.location and location:
+                project.location = location
+                fields_to_update.append('location')
+            if not project.developer and developer:
+                project.developer = developer
+                fields_to_update.append('developer')
+            if (not project.starting_price or project.starting_price == 0) and starting_price:
+                project.starting_price = starting_price
+                fields_to_update.append('starting_price')
+            if not project.currency and currency:
+                project.currency = currency
+                fields_to_update.append('currency')
             if fields_to_update:
                 project.save(update_fields=fields_to_update)
 
@@ -400,7 +468,7 @@ def scrape_company_website_task(self, company_id: int, website: str):
             from projects.tasks import import_scraped_proposal_image_task
 
             try:
-                image_task = import_scraped_proposal_image_task.delay(project.pk, image_url)
+                image_task = import_scraped_proposal_image_task.delay(project.pk, image_url, 'exterior')
                 scraped_project['exterior_image_task_id'] = image_task.id
             except Exception:
                 logger.exception(
@@ -413,9 +481,19 @@ def scrape_company_website_task(self, company_id: int, website: str):
     report['project_ids'] = saved_project_ids
     report['projects_created_or_updated'] = len(saved_project_ids)
     company.website = normalized_website
-    company.website_data = report
-    company.website_scrape_status = 'completed' if report.get('projects') else 'empty'
-    company.save(update_fields=['website', 'website_data', 'website_scrape_status'])
+
+    _update_progress(
+        100,
+        'Scraping completed successfully!',
+        extra={
+            'status': 'completed',
+            'projects': report.get('projects', []),
+            'project_ids': saved_project_ids,
+            'projects_created_or_updated': len(saved_project_ids),
+            'total_projects': len(saved_project_ids),
+            'error': None,
+        },
+    )
     logger.info('scrape_company_website_task finished: company_id=%s status=%s projects=%s', company_id, report.get('status'), len(report.get('projects', [])))
     return report
 

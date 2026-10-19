@@ -27,16 +27,15 @@ logger = logging.getLogger(__name__)
 WEBSITE_DOCUMENT_NAME = 'Website Data.txt'
 WEBSITE_DOCUMENT_FILE = 'website_data.txt'
 
-# Crawl limits. A company site is small; these only stop a huge or slow site
-# from tying up the worker.
-MAX_PAGES = 15
+# Crawl limits. Scaled up to cover full company sites and all projects.
+MAX_PAGES = 100
 MAX_FETCHES = MAX_PAGES * 3
 MAX_PAGE_BYTES = 2_000_000
-MAX_DOCUMENT_CHARS = 300_000
+MAX_DOCUMENT_CHARS = 1_500_000
 MIN_DOCUMENT_CHARS = 200
 MAX_REDIRECTS = 5
 REQUEST_TIMEOUT_SECONDS = 15
-CRAWL_BUDGET_SECONDS = 120
+CRAWL_BUDGET_SECONDS = 300
 
 HEADERS = {
     'User-Agent': (

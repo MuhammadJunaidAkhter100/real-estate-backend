@@ -67,8 +67,8 @@ def upload_proposal_images_task(self, project_id: int, saved_files: list):
 
 
 @shared_task(bind=True, name='projects.import_scraped_proposal_image')
-def import_scraped_proposal_image_task(self, project_id: int, image_url: str):
-    """Download a scraped project image into the exterior proposal-image slot."""
+def import_scraped_proposal_image_task(self, project_id: int, image_url: str, label: str = 'exterior'):
+    """Download a scraped project image into the proposal-image slot (defaults to 'exterior')."""
     try:
         project = Project.objects.get(pk=project_id)
     except Project.DoesNotExist:
@@ -78,7 +78,7 @@ def import_scraped_proposal_image_task(self, project_id: int, image_url: str):
     if parsed_url.scheme not in ('http', 'https') or not parsed_url.netloc:
         return {'success': False, 'error': 'Invalid image URL', 'project_id': project_id}
 
-    label = 'exterior'
+    label = (label or 'exterior').strip().lower()
     image_hash = hashlib.sha256(image_url.encode('utf-8')).hexdigest()
     proposal_images = project.proposal_images or {}
     existing_paths = proposal_images.get(label, []) if isinstance(proposal_images, dict) else []
