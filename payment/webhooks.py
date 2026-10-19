@@ -6,7 +6,7 @@ import logging
 
 from django.conf import settings
 
-from payment import services, stripe_client
+from payment import plan_limits, services, stripe_client
 from payment.plan_limits import PLAN_FREE, normalize_interval, normalize_plan
 from users.models import Company
 
@@ -35,26 +35,35 @@ def handle_checkout_session_completed(session):
         logger.warning('checkout.session.completed received for unknown company/customer: %s', customer_id)
         return
 
-    # Extract price from line items or retrieve subscription details
-    price_id = None
-    line_items = (session.get('line_items') or {}).get('data') or []
-    if line_items:
-        price_obj = line_items[0].get('price') or {}
-        price_id = price_obj.get('id') if isinstance(price_obj, dict) else str(price_obj)
+    # Dynamic checkout: Read plan and interval directly from session metadata
+    meta = session.get('metadata') or {}
+    meta_plan = meta.get('plan')
+    meta_interval = meta.get('interval')
 
-    if not price_id and subscription_id:
-        try:
-            sub = stripe_client.retrieve_subscription(subscription_id)
-            sub_items = (sub.get('items') or {}).get('data') or []
-            if sub_items:
-                p = sub_items[0].get('price') or {}
-                price_id = p.get('id') if isinstance(p, dict) else str(p)
-        except Exception as exc:
-            logger.warning('Failed to fetch subscription for price detection: %s', exc)
+    if meta_plan:
+        plan = plan_limits.normalize_plan(meta_plan)
+        interval = plan_limits.normalize_interval(meta_interval or 'monthly')
+    else:
+        # Fallback to Stripe price lookup if pre-configured price IDs were used
+        price_id = None
+        line_items = (session.get('line_items') or {}).get('data') or []
+        if line_items:
+            price_obj = line_items[0].get('price') or {}
+            price_id = price_obj.get('id') if isinstance(price_obj, dict) else str(price_obj)
 
-    detected_plan, detected_interval = stripe_client.plan_and_interval_for_price(price_id)
-    plan = detected_plan or company.plan or PLAN_FREE
-    interval = detected_interval or company.billing_interval or 'monthly'
+        if not price_id and subscription_id:
+            try:
+                sub = stripe_client.retrieve_subscription(subscription_id)
+                sub_items = (sub.get('items') or {}).get('data') or []
+                if sub_items:
+                    p = sub_items[0].get('price') or {}
+                    price_id = p.get('id') if isinstance(p, dict) else str(p)
+            except Exception as exc:
+                logger.warning('Failed to fetch subscription for price detection: %s', exc)
+
+        detected_plan, detected_interval = stripe_client.plan_and_interval_for_price(price_id)
+        plan = detected_plan or company.plan or PLAN_FREE
+        interval = detected_interval or company.billing_interval or 'monthly'
 
     logger.info(
         'Activating company %s on plan=%s, interval=%s, sub=%s',

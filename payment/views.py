@@ -81,16 +81,6 @@ class CheckoutSessionView(APIView):
         plan = plan_limits.normalize_plan(data['plan'])
         interval = plan_limits.normalize_interval(data.get('interval', 'monthly'))
 
-        # Resolve Stripe price ID server-side
-        try:
-            price_id = stripe_client.price_id_for(plan, interval)
-        except Exception as exc:
-            logger.error('Failed to resolve price ID for plan=%s interval=%s: %s', plan, interval, exc)
-            return Response(
-                {'detail': str(exc), 'code': 'PRICE_NOT_CONFIGURED'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         # Ensure company has a Stripe Customer ID
         try:
             customer_id = company.stripe_customer_id
@@ -108,9 +98,11 @@ class CheckoutSessionView(APIView):
             success_url = data.get('success_url') or _frontend_url('/subscription?success=true&session_id={CHECKOUT_SESSION_ID}')
             cancel_url = data.get('cancel_url') or _frontend_url('/subscription?canceled=true')
 
+            # Dynamic Stripe checkout session - zero config needed in .env!
             session = stripe_client.create_checkout_session(
                 customer_id=customer_id,
-                price_id=price_id,
+                plan=plan,
+                interval=interval,
                 client_reference_id=company.pk,
                 success_url=success_url,
                 cancel_url=cancel_url,

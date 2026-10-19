@@ -182,3 +182,37 @@ def current_period_start(now=None):
         day=1,
         tzinfo=dt_timezone.utc,
     )
+
+
+def get_plan_name(plan):
+    norm = normalize_plan(plan)
+    return PLAN_LIMITS.get(norm, {}).get('name', str(plan).capitalize())
+
+
+def get_plan_amount_cents(plan, interval='monthly'):
+    """Calculate the recurring amount in cents for Stripe.
+    
+    Pro:
+      monthly: $49/mo -> 4900 cents
+      yearly: $39/mo ($468/yr) -> 46800 cents
+    Plus:
+      monthly: $99/mo -> 9900 cents
+      yearly: $79/mo ($948/yr) -> 94800 cents
+    Top Tier:
+      monthly: $199/mo -> 19900 cents
+      yearly: $159/mo ($1908/yr) -> 190800 cents
+    """
+    norm_plan = normalize_plan(plan)
+    norm_interval = normalize_interval(interval)
+    config = PLAN_LIMITS.get(norm_plan)
+    if not config:
+        raise ValueError(f"Unknown plan: {plan}")
+
+    if norm_interval == 'yearly':
+        yearly_rate = config.get('yearly_price', 0)
+        # Billed annually (12 months)
+        return int(yearly_rate * 12 * 100)
+    else:
+        monthly_rate = config.get('monthly_price', 0)
+        return int(monthly_rate * 100)
+

@@ -4,6 +4,7 @@ import logging
 import stripe
 from django.conf import settings
 
+from payment import plan_limits
 from payment.exceptions import StripeNotConfigured
 from payment.plan_limits import (
     PLAN_PRO,
@@ -99,22 +100,69 @@ def create_customer(*, email, name, metadata=None):
 def create_checkout_session(
     *,
     customer_id,
-    price_id,
+    plan,
+    interval='monthly',
     client_reference_id,
     success_url,
     cancel_url,
     metadata=None,
+    price_id=None,
 ):
-    """Create a Stripe checkout session for subscription."""
+    """Create a Stripe checkout session for subscription.
+    
+    Uses dynamic `price_data` so that pre-creating products/prices in the
+    Stripe dashboard or configuring price IDs in .env is NOT required!
+    """
     client = _client()
+    plan = normalize_plan(plan)
+    interval = normalize_interval(interval)
+
+    # If price_id is provided or configured in settings, use it as fallback.
+    if not price_id:
+        env_name = get_price_env_map().get((plan, interval), '')
+        price_id = getattr(settings, env_name, '') if env_name else ''
+
+    if price_id:
+        line_items = [{'price': price_id, 'quantity': 1}]
+    else:
+        # Dynamic Stripe price_data: 100% Zero-config!
+        amount_cents = plan_limits.get_plan_amount_cents(plan, interval)
+        plan_name = plan_limits.get_plan_name(plan)
+        interval_code = 'month' if interval == 'monthly' else 'year'
+
+        line_items = [{
+            'price_data': {
+                'currency': 'usd',
+                'product_data': {
+                    'name': f"{plan_name} Plan ({interval.capitalize()})",
+                    'metadata': {'plan': plan, 'interval': interval},
+                },
+                'unit_amount': amount_cents,
+                'recurring': {
+                    'interval': interval_code,
+                },
+            },
+            'quantity': 1,
+        }]
+
+    meta = dict(metadata or {})
+    meta.update({
+        'company_id': str(client_reference_id),
+        'plan': plan,
+        'interval': interval,
+    })
+
     return client.checkout.sessions.create({
         'mode': 'subscription',
         'customer': customer_id,
-        'line_items': [{'price': price_id, 'quantity': 1}],
+        'line_items': line_items,
         'client_reference_id': str(client_reference_id),
         'success_url': success_url,
         'cancel_url': cancel_url,
-        'metadata': metadata or {},
+        'metadata': meta,
+        'subscription_data': {
+            'metadata': meta,
+        },
     })
 
 

@@ -116,3 +116,42 @@ class WebhookTests(TestCase):
         self.assertEqual(self.company.plan, 'pro')
         self.assertEqual(self.company.billing_interval, 'yearly')
         self.assertEqual(self.company.stripe_subscription_id, 'sub_test_abc')
+
+    def test_checkout_session_completed_with_metadata(self):
+        from payment.webhooks import handle_checkout_session_completed
+
+        session = {
+            'customer': 'cus_test_123',
+            'subscription': 'sub_test_xyz',
+            'client_reference_id': str(self.company.pk),
+            'metadata': {'plan': 'plus', 'interval': 'yearly'},
+        }
+        handle_checkout_session_completed(session)
+
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.status, Company.Status.ACTIVE)
+        self.assertEqual(self.company.plan, 'plus')
+        self.assertEqual(self.company.billing_interval, 'yearly')
+        self.assertEqual(self.company.stripe_subscription_id, 'sub_test_xyz')
+
+    @patch('payment.stripe_client._client')
+    def test_create_checkout_session_dynamic_price_data(self, mock_client):
+        from payment import stripe_client
+
+        mock_instance = MagicMock()
+        mock_instance.checkout.sessions.create.return_value = MagicMock(url='https://checkout.stripe.com/test', id='cs_123')
+        mock_client.return_value = mock_instance
+
+        session = stripe_client.create_checkout_session(
+            customer_id='cus_123',
+            plan='pro',
+            interval='monthly',
+            client_reference_id=1,
+            success_url='https://example.com/success',
+            cancel_url='https://example.com/cancel',
+        )
+        self.assertEqual(session.url, 'https://checkout.stripe.com/test')
+        call_args = mock_instance.checkout.sessions.create.call_args[0][0]
+        self.assertEqual(call_args['line_items'][0]['price_data']['unit_amount'], 4900)
+        self.assertEqual(call_args['line_items'][0]['price_data']['recurring']['interval'], 'month')
+        self.assertEqual(call_args['metadata']['plan'], 'pro')

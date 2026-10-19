@@ -338,9 +338,17 @@ def sync_subscription(company, subscription):
     price_obj = items[0].get('price') or {}
     price_id = price_obj.get('id') if isinstance(price_obj, dict) else str(price_obj)
 
-    detected_plan, detected_interval = stripe_client.plan_and_interval_for_price(price_id)
-    plan = detected_plan or company.plan or plan_limits.PLAN_FREE
-    interval = detected_interval or company.billing_interval or 'monthly'
+    sub_meta = subscription.get('metadata') or {}
+    meta_plan = sub_meta.get('plan')
+    meta_interval = sub_meta.get('interval')
+
+    if meta_plan:
+        plan = plan_limits.normalize_plan(meta_plan)
+        interval = plan_limits.normalize_interval(meta_interval or 'monthly')
+    else:
+        detected_plan, detected_interval = stripe_client.plan_and_interval_for_price(price_id)
+        plan = detected_plan or company.plan or plan_limits.PLAN_FREE
+        interval = detected_interval or company.billing_interval or 'monthly'
 
     # Current period end
     period_end_ts = (
