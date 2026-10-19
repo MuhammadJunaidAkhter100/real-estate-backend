@@ -25,9 +25,9 @@ class ProcessedStripeEvent(models.Model):
 class CreditCharge(models.Model):
     """Receipt for a single AI-credit deduction.
 
-    ``task_id`` is the Celery task id (``self.request.id``), which makes the
-    charge idempotent across task retries. Refunding deletes the receipt so a
-    retry re-charges cleanly instead of refunding twice.
+    ``task_id`` is the Celery task id (``self.request.id``) or an idempotency key,
+    which makes the charge idempotent across retries. Refunding deletes the receipt
+    so a retry re-charges cleanly instead of refunding twice.
     """
 
     task_id = models.CharField(max_length=255, unique=True)
@@ -58,6 +58,7 @@ class UsageCounter(models.Model):
 
     class Kind(models.TextChoices):
         USERS = 'users', 'Users'
+        AGENTS = 'agents', 'Agents'
         TEAM_MANAGERS = 'team_managers', 'Team Managers'
         AI_PROPOSALS = 'ai_proposals', 'AI Proposals'
         AI_CREDITS = 'ai_credits', 'AI Credits'
@@ -77,7 +78,7 @@ class UsageCounter(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=['company', 'kind', 'period_start'],
-                name='unique_usage_counter_per_period',
+                name='unique_payment_usage_counter_per_period',
             ),
         ]
         verbose_name = 'Usage counter'

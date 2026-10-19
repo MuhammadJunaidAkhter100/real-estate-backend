@@ -46,12 +46,18 @@ class Company(models.Model):
         SUSPENDED = 'suspended', 'Suspended'
 
     class Plan(models.TextChoices):
+        FREE = 'free', 'Free'
+        PRO = 'pro', 'Pro'
+        PLUS = 'plus', 'Plus'
+        TOP_TIER = 'top_tier', 'Top Tier'
+        MANUAL = 'manual', 'Manual'
+        # Backward-compatibility aliases
         BASIC = 'basic', 'Basic'
         PROFESSIONAL = 'professional', 'Professional'
-        MANUAL = 'manual', 'Manual'
 
     class BillingInterval(models.TextChoices):
         MONTHLY = 'monthly', 'Monthly'
+        YEARLY = 'yearly', 'Yearly'
         ANNUAL = 'annual', 'Annual'
 
     name = models.CharField(max_length=255)

@@ -1,0 +1,276 @@
+import logging
+import stripe
+from django.conf import settings
+from django.db import IntegrityError, transaction
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from payment import plan_limits, services, stripe_client, webhooks
+from payment.guards import payment_exempt
+from payment.models import ProcessedStripeEvent
+from payment.serializers import CheckoutRequestSerializer, VerifySessionSerializer
+from users.models import Company
+
+logger = logging.getLogger(__name__)
+
+
+def _frontend_url(path=''):
+    base = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000').rstrip('/')
+    return f"{base}{path}"
+
+
+@payment_exempt
+class PlansListView(APIView):
+    """List available subscription plans, features, and pricing for monthly/yearly billing."""
+
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        company_plan = None
+        user = getattr(request, 'user', None)
+        if user and user.is_authenticated and getattr(user, 'company', None):
+            company_plan = plan_limits.normalize_plan(user.company.plan)
+
+        plans_data = []
+        for plan_key in [
+            plan_limits.PLAN_FREE,
+            plan_limits.PLAN_PRO,
+            plan_limits.PLAN_PLUS,
+            plan_limits.PLAN_TOP_TIER,
+        ]:
+            info = plan_limits.PLAN_LIMITS[plan_key]
+            plans_data.append({
+                'id': plan_key,
+                'name': info.get('name'),
+                'badge': info.get('badge'),
+                'monthlyPrice': info.get('monthly_price'),
+                'yearlyPrice': info.get('yearly_price'),
+                'aiCredits': info.get('ai_credits'),
+                'agents': info.get('agents'),
+                'teamManagers': info.get('team_managers'),
+                'features': info.get('features', {}),
+                'isActivePlan': (company_plan == plan_key),
+            })
+
+        return Response({
+            'plans': plans_data,
+            'currentPlan': company_plan or 'free',
+        })
+
+
+@payment_exempt
+class CheckoutSessionView(APIView):
+    """Create a Stripe Checkout Session for a chosen plan and billing interval."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        company = getattr(request.user, 'company', None)
+        if company is None:
+            return Response(
+                {'detail': 'An associated company is required to start checkout.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = CheckoutRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        plan = plan_limits.normalize_plan(data['plan'])
+        interval = plan_limits.normalize_interval(data.get('interval', 'monthly'))
+
+        # Resolve Stripe price ID server-side
+        try:
+            price_id = stripe_client.price_id_for(plan, interval)
+        except Exception as exc:
+            logger.error('Failed to resolve price ID for plan=%s interval=%s: %s', plan, interval, exc)
+            return Response(
+                {'detail': str(exc), 'code': 'PRICE_NOT_CONFIGURED'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Ensure company has a Stripe Customer ID
+        try:
+            customer_id = company.stripe_customer_id
+            if not customer_id:
+                customer = stripe_client.create_customer(
+                    email=request.user.email,
+                    name=company.name,
+                    metadata={'company_id': str(company.pk)},
+                )
+                customer_id = customer.id
+                Company.objects.filter(pk=company.pk).update(stripe_customer_id=customer_id)
+                company.stripe_customer_id = customer_id
+                services.invalidate(company.pk)
+
+            success_url = data.get('success_url') or _frontend_url('/subscription?success=true&session_id={CHECKOUT_SESSION_ID}')
+            cancel_url = data.get('cancel_url') or _frontend_url('/subscription?canceled=true')
+
+            session = stripe_client.create_checkout_session(
+                customer_id=customer_id,
+                price_id=price_id,
+                client_reference_id=company.pk,
+                success_url=success_url,
+                cancel_url=cancel_url,
+                metadata={'company_id': str(company.pk), 'plan': plan, 'interval': interval},
+            )
+        except Exception as exc:
+            logger.exception('Stripe checkout session creation failed: %s', exc)
+            return Response(
+                {'detail': 'Failed to initiate payment session. Please check Stripe configuration.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response({
+            'checkoutUrl': session.url,
+            'sessionId': session.id,
+        })
+
+
+@payment_exempt
+class BillingPortalView(APIView):
+    """Generate a link to the Stripe Billing Customer Portal."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        company = getattr(request.user, 'company', None)
+        if company is None or not company.stripe_customer_id:
+            return Response(
+                {'detail': 'No Stripe billing account found for this company.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return_url = _frontend_url('/subscription')
+        try:
+            session = stripe_client.create_portal_session(company.stripe_customer_id, return_url=return_url)
+        except Exception as exc:
+            logger.exception('Failed to create customer portal session: %s', exc)
+            return Response(
+                {'detail': 'Could not open billing portal.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response({'portalUrl': session.url})
+
+
+@payment_exempt
+class BillingStatusView(APIView):
+    """Retrieve current subscription status, usage counters, and quota limits."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        company = getattr(request.user, 'company', None)
+        if company is None:
+            return Response({
+                'status': 'active',
+                'plan': 'manual',
+                'allowed': True,
+                'limits': services.limits_for('manual'),
+                'usage': {},
+            })
+
+        state = services.get_company_state(company.pk) or {}
+        plan = company.plan or 'free'
+
+        return Response({
+            'status': state.get('status', company.status),
+            'plan': plan_limits.normalize_plan(plan),
+            'billingInterval': company.billing_interval or 'monthly',
+            'allowed': state.get('allowed', True),
+            'graceUntil': state.get('grace_until'),
+            'currentPeriodEnd': state.get('current_period_end'),
+            'hasPaymentMethod': bool(company.stripe_customer_id),
+            'periodStart': plan_limits.current_period_start().isoformat(),
+            'limits': services.limits_for(plan),
+            'usage': services.usage_snapshot(company.pk, plan=plan),
+        })
+
+
+@payment_exempt
+class VerifyCheckoutSessionView(APIView):
+    """Verify if a checkout session was completed successfully."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        session_id = request.query_params.get('session_id')
+        if not session_id:
+            return Response({'detail': 'session_id query parameter is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        company = getattr(request.user, 'company', None)
+        if company is None:
+            return Response({'detail': 'No company associated.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            session = stripe_client.retrieve_checkout_session(session_id)
+        except Exception as exc:
+            logger.error('Failed to retrieve checkout session: %s', exc)
+            return Response({'detail': 'Could not verify checkout session.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session_obj = session if isinstance(session, dict) else session.to_dict()
+        cust_id = session_obj.get('customer')
+        cust_id = cust_id.get('id') if isinstance(cust_id, dict) else cust_id
+        ref_id = session_obj.get('client_reference_id')
+
+        belongs = bool(
+            (cust_id and cust_id == company.stripe_customer_id)
+            or (ref_id and str(ref_id) == str(company.pk))
+        )
+        paid = (session_obj.get('payment_status') == 'paid')
+
+        return Response({
+            'sessionId': session_id,
+            'paid': paid,
+            'belongsToCompany': belongs,
+            'status': services.get_company_state(company.pk) or {},
+        })
+
+
+@payment_exempt
+class StripeWebhookView(APIView):
+    """Public receiver for Stripe webhook notifications."""
+
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+    parser_classes = []
+    throttle_classes = []
+
+    def post(self, request):
+        payload = request.body
+        signature = request.headers.get('Stripe-Signature')
+
+        secret = getattr(settings, 'STRIPE_WEBHOOK_SECRET', '')
+        if not secret:
+            logger.error('Stripe webhook received but STRIPE_WEBHOOK_SECRET is not configured.')
+            return Response({'detail': 'Webhook secret is not configured.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            event = stripe.Webhook.construct_event(payload, signature, secret)
+        except (ValueError, stripe.SignatureVerificationError) as exc:
+            logger.warning('Invalid Stripe webhook signature: %s', exc)
+            return Response({'detail': 'Invalid signature.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        event_id = event.get('id')
+        event_type = event.get('type', '')
+
+        # Webhook idempotency ledger
+        try:
+            with transaction.atomic():
+                ProcessedStripeEvent.objects.create(event_id=event_id, event_type=event_type)
+        except IntegrityError:
+            # Already processed
+            return Response({'received': True, 'duplicate': True})
+
+        try:
+            webhooks.dispatch(event)
+        except Exception:
+            logger.exception('Failed to handle Stripe webhook event %s (%s)', event_id, event_type)
+            # Release idempotency claim so Stripe retry can be processed
+            ProcessedStripeEvent.objects.filter(event_id=event_id).delete()
+            return Response({'detail': 'Webhook processing error.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'received': True})

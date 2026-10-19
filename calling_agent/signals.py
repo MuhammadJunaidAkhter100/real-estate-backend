@@ -26,7 +26,7 @@ def on_call_post_save(sender, instance: Call, created: bool, **kwargs):
                     # credit itself. The receipt is keyed on the call, so if the
                     # task was queued after all this is a no-op.
                     from calling_agent.services import charge_transcript_credits
-                    from billing.exceptions import PlanLimitReached
+                    from payment.exceptions import PlanLimitReached
 
                     try:
                         charge_transcript_credits(instance)

@@ -89,8 +89,8 @@ def extract_knowledge_base_document(self, document_id: int):
     receipt = f"kb-extraction:{doc.pk}"
     charged_here = False
     if company is not None:
-        from billing.exceptions import PlanLimitReached
-        from billing.services import consume_credits
+        from payment.exceptions import PlanLimitReached
+        from payment.services import consume_credits
 
         try:
             charged_here = consume_credits(
@@ -146,7 +146,7 @@ def extract_knowledge_base_document(self, document_id: int):
         doc.error = str(exc)
         doc.save(update_fields=["status", "error", "updated_at"])
         if charged_here:
-            from billing.services import refund_credits
+            from payment.services import refund_credits
 
             refund_credits(
                 company.pk, "kb_document_extraction", receipt_id=receipt)

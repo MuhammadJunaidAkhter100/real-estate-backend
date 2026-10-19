@@ -14,7 +14,7 @@ from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
-from billing.exceptions import PlanLimitReached
+from payment.exceptions import PlanLimitReached
 from users.serializers import LeadSerializer, UserManagementSerializer
 
 User = get_user_model()

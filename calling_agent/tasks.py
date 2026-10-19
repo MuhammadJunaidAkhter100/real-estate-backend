@@ -29,7 +29,7 @@ def process_call_transcript_task(
     # AI transcript analysis costs 1 credit, charged once per call.
     charged_here = False
     if call_obj.company_id:
-        from billing.exceptions import PlanLimitReached
+        from payment.exceptions import PlanLimitReached
 
         from .services import charge_transcript_credits
 
@@ -51,7 +51,7 @@ def process_call_transcript_task(
         analyze_and_process_call(call_obj)
     except Exception:
         if charged_here:
-            from billing.services import refund_credits
+            from payment.services import refund_credits
 
             refund_credits(
                 call_obj.company_id, 'transcript_processing',

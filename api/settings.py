@@ -61,7 +61,7 @@ INSTALLED_APPS = [
     'notifications',
     'whatsapp',
     'calling_agent',
-    'billing',
+    'payment',
 ]
 
 MIDDLEWARE = [
@@ -75,7 +75,7 @@ MIDDLEWARE = [
     # Global subscription enforcement. Sits after AuthenticationMiddleware so
     # session users are resolved, and before the view so a company that cannot
     # pay is rejected before any work happens.
-    'billing.middleware.SubscriptionGuardMiddleware',
+    'payment.middleware.SubscriptionGuardMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -226,11 +226,11 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
         # Runs after IsAuthenticated, so it only ever sees an authenticated
-        # request. Blocks companies whose billing is not in good standing.
-        'billing.guards.SubscriptionGuard',
+        # request. Blocks companies whose billing/payment is not in good standing.
+        'payment.guards.SubscriptionGuard',
     ],
-    # Gives 402/403 billing errors their machine-readable body shape.
-    'EXCEPTION_HANDLER': 'billing.exception_handlers.billing_exception_handler',
+    # Gives 402/403 billing/payment errors their machine-readable body shape.
+    'EXCEPTION_HANDLER': 'payment.exception_handlers.payment_exception_handler',
 }
 
 # Prefix stripped from request paths when matching billing-exempt routes.
@@ -321,22 +321,35 @@ EMAIL_LOGO_URL = config("EMAIL_LOGO_URL", default=f"{EMAIL_SITE_URL.rstrip('/')}
 # No secret or price ID is ever hardcoded; price selection happens server-side
 # from these variables so the client can never choose what it pays.
 STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", cast=str, default="")
+STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", cast=str, default="")
 STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", cast=str, default="")
-STRIPE_PRICE_PRO_MONTHLY = config("STRIPE_PRICE_PRO_MONTHLY", cast=str, default="")
-STRIPE_PRICE_PRO_ANNUAL = config("STRIPE_PRICE_PRO_ANNUAL", cast=str, default="")
 
-# Number of days an unpaid company is kept before cleanup, and the grace period
-# a past_due company keeps full access.
-BILLING_PENDING_COMPANY_TTL_HOURS = config(
-    "BILLING_PENDING_COMPANY_TTL_HOURS",
-    default=48,
+# Pro Plan Prices
+STRIPE_PRICE_PRO_MONTHLY = config("STRIPE_PRICE_PRO_MONTHLY", cast=str, default="")
+STRIPE_PRICE_PRO_YEARLY = config("STRIPE_PRICE_PRO_YEARLY", cast=str, default=config("STRIPE_PRICE_PRO_ANNUAL", cast=str, default=""))
+STRIPE_PRICE_PRO_ANNUAL = STRIPE_PRICE_PRO_YEARLY
+
+# Plus Plan Prices
+STRIPE_PRICE_PLUS_MONTHLY = config("STRIPE_PRICE_PLUS_MONTHLY", cast=str, default="")
+STRIPE_PRICE_PLUS_YEARLY = config("STRIPE_PRICE_PLUS_YEARLY", cast=str, default="")
+
+# Top Tier Plan Prices
+STRIPE_PRICE_TOP_TIER_MONTHLY = config("STRIPE_PRICE_TOP_TIER_MONTHLY", cast=str, default="")
+STRIPE_PRICE_TOP_TIER_YEARLY = config("STRIPE_PRICE_TOP_TIER_YEARLY", cast=str, default="")
+
+# Grace period and pending TTL
+PAYMENT_PENDING_COMPANY_TTL_HOURS = config(
+    "PAYMENT_PENDING_COMPANY_TTL_HOURS",
+    default=config("BILLING_PENDING_COMPANY_TTL_HOURS", default=48, cast=int),
     cast=int,
 )
-BILLING_GRACE_PERIOD_DAYS = config(
-    "BILLING_GRACE_PERIOD_DAYS",
-    default=5,
+PAYMENT_GRACE_PERIOD_DAYS = config(
+    "PAYMENT_GRACE_PERIOD_DAYS",
+    default=config("BILLING_GRACE_PERIOD_DAYS", default=5, cast=int),
     cast=int,
 )
+BILLING_PENDING_COMPANY_TTL_HOURS = PAYMENT_PENDING_COMPANY_TTL_HOURS
+BILLING_GRACE_PERIOD_DAYS = PAYMENT_GRACE_PERIOD_DAYS
 
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -408,12 +421,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "users.tasks.check_and_update_task_expirations",
         "schedule": timedelta(seconds=60),
     },
-    "billing-suspend-overdue-companies": {
-        "task": "billing.suspend_overdue_companies",
+    "payment-suspend-overdue-companies": {
+        "task": "payment.suspend_overdue_companies",
         "schedule": timedelta(hours=1),
     },
-    "billing-cleanup-pending-companies": {
-        "task": "billing.cleanup_pending_companies",
+    "payment-cleanup-pending-companies": {
+        "task": "payment.cleanup_pending_companies",
         "schedule": timedelta(hours=6),
     },
 }
@@ -484,11 +497,12 @@ CALLING_AGENT_TOOL_CACHE_URL = config(
     default=CELERY_BROKER_URL,
     cast=str,
 )
-BILLING_CACHE_URL = config(
-    "BILLING_CACHE_URL",
-    default=CALLING_AGENT_TOOL_CACHE_URL,
+PAYMENT_CACHE_URL = config(
+    "PAYMENT_CACHE_URL",
+    default=config("BILLING_CACHE_URL", default=CALLING_AGENT_TOOL_CACHE_URL, cast=str),
     cast=str,
 )
+BILLING_CACHE_URL = PAYMENT_CACHE_URL
 ELEVENLABS_API_BASE_URL = config(
     "ELEVENLABS_API_BASE_URL",
     default="https://api.elevenlabs.io",

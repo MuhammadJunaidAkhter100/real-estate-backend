@@ -12,7 +12,7 @@ from django.test import TestCase
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from rest_framework.test import APIClient
 
-from billing.plan_limits import PLAN_LIMITS
+from payment.plan_limits import PLAN_LIMITS
 from chatbot import graph
 from chatbot.models import ChatSession
 from chatbot.public_prompt import PUBLIC_SYSTEM_PROMPT, WEBSITE_FACTS

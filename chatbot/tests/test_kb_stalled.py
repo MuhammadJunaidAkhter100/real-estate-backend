@@ -153,7 +153,7 @@ class TaskTimeLimitTests(StalledDocumentTestCase):
             self.assertEqual(task.soft_time_limit, KB_TASK_SOFT_TIME_LIMIT, task.name)
             self.assertEqual(task.time_limit, KB_TASK_TIME_LIMIT, task.name)
 
-    @patch('billing.services.consume_credits', return_value=True)
+    @patch('payment.services.consume_credits', return_value=True)
     def test_an_upload_that_runs_too_long_is_marked_failed(self, _consume):
         doc = self.make_doc(Status.PENDING, timedelta(0))
 

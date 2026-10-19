@@ -398,7 +398,7 @@ def charge_call_credits(company, receipt):
     """
     if company is None:
         return False
-    from billing.services import consume_credits
+    from payment.services import consume_credits
 
     return consume_credits(company.pk, 'calling_agent_call', receipt_id=receipt)
 
@@ -412,7 +412,7 @@ def charge_transcript_credits(call):
     """
     if call.company_id is None:
         return False
-    from billing.services import consume_credits
+    from payment.services import consume_credits
 
     return consume_credits(
         call.company_id, 'transcript_processing',

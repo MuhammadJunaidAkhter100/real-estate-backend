@@ -33,7 +33,7 @@ from chatbot.website_knowledge import (
     prepare_website_document,
     website_document,
 )
-from billing.services import consume_credits, refund_credits
+from payment.services import consume_credits, refund_credits
 from users.permissions import IsCompanyAdmin
 
 logger = logging.getLogger(__name__)
@@ -485,8 +485,8 @@ class KnowledgeBaseView(APIView):
             # Immediate guard so an exhausted allowance is a clean 403 rather
             # than a document that silently fails in the background worker.
             if request.user.company_id:
-                from billing.exceptions import PlanLimitReached
-                from billing.services import assert_can_use_credits
+                from payment.exceptions import PlanLimitReached
+                from payment.services import assert_can_use_credits
 
                 try:
                     assert_can_use_credits(

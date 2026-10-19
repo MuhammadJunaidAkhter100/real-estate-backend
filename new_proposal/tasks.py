@@ -11,8 +11,8 @@ from celery import shared_task
 from django.core.files.base import ContentFile
 from django.db import transaction
 
-from billing import services
-from billing.exceptions import PlanLimitReached
+from payment import services
+from payment.exceptions import PlanLimitReached
 
 logger = logging.getLogger(__name__)
 

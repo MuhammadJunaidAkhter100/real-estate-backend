@@ -618,7 +618,7 @@ class UserManagementSerializer(serializers.ModelSerializer):
     #     return attrs
 
     def create(self, validated_data):
-        from billing.services import PlanLimitsService
+        from payment.services import PlanLimitsService
 
         validated_data['status'] = "invited"
         # Seat check and INSERT share one transaction, so two admins inviting
@@ -634,7 +634,7 @@ class UserManagementSerializer(serializers.ModelSerializer):
         return user
 
     def update(self, instance, validated_data):
-        from billing.services import PlanLimitsService
+        from payment.services import PlanLimitsService
 
         # A PATCH can promote someone to team_manager, so the manager cap has to
         # be re-checked on the same row being changed. Demotion is never
