@@ -2,6 +2,8 @@ import logging
 import stripe
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,6 +15,8 @@ from payment.serializers import CheckoutRequestSerializer, VerifySessionSerializ
 from users.models import Company
 
 logger = logging.getLogger(__name__)
+
+SWAGGER_TAG = ['Payments & Subscriptions']
 
 
 def _frontend_url(path=''):
@@ -27,6 +31,11 @@ class PlansListView(APIView):
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
+    @swagger_auto_schema(
+        tags=SWAGGER_TAG,
+        operation_summary="List Subscription Plans",
+        operation_description="Returns all available plans (Free, Pro, Plus, Top Tier) with features, monthly and yearly pricing.",
+    )
     def get(self, request):
         company_plan = None
         user = getattr(request, 'user', None)
@@ -66,6 +75,29 @@ class CheckoutSessionView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        tags=SWAGGER_TAG,
+        operation_summary="Create Stripe Checkout Session",
+        operation_description=(
+            "Initiate a Stripe Checkout session for a chosen plan ('pro', 'plus', or 'top_tier') "
+            "and billing interval ('monthly' or 'yearly'). Returns a checkoutUrl to redirect the user to."
+        ),
+        request_body=CheckoutRequestSerializer,
+        responses={
+            200: openapi.Response(
+                description="Checkout session created successfully.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'checkoutUrl': openapi.Schema(type=openapi.TYPE_STRING, description="Stripe checkout URL"),
+                        'sessionId': openapi.Schema(type=openapi.TYPE_STRING, description="Stripe session ID"),
+                    },
+                ),
+            ),
+            400: "Invalid plan or missing company",
+            503: "Payment gateway error",
+        },
+    )
     def post(self, request):
         company = getattr(request.user, 'company', None)
         if company is None:
@@ -127,6 +159,11 @@ class BillingPortalView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        tags=SWAGGER_TAG,
+        operation_summary="Open Customer Billing Portal",
+        operation_description="Returns a portalUrl to the Stripe Customer Portal for managing saved cards, viewing invoices, or updating subscriptions.",
+    )
     def post(self, request):
         company = getattr(request.user, 'company', None)
         if company is None or not company.stripe_customer_id:
@@ -154,6 +191,11 @@ class BillingStatusView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        tags=SWAGGER_TAG,
+        operation_summary="Get Subscription & Usage Status",
+        operation_description="Returns caller company's current active plan, interval, AI credit balance, user/agent limits, and live usage counters.",
+    )
     def get(self, request):
         company = getattr(request.user, 'company', None)
         if company is None:
@@ -188,6 +230,12 @@ class VerifyCheckoutSessionView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        tags=SWAGGER_TAG,
+        operation_summary="Verify Checkout Session",
+        operation_description="Confirms whether a Stripe Checkout Session completed successfully and belongs to caller's company.",
+        query_serializer=VerifySessionSerializer,
+    )
     def get(self, request):
         session_id = request.query_params.get('session_id')
         if not session_id:

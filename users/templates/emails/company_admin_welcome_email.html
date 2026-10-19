@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to {{ brand_name }} – {{ company_name }}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{margin:0;background:#0f172a;color:#ECEEF1;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{text-decoration:none;color:#7FA8C9}
+    .email-bg{width:100%;background:
+      radial-gradient(circle at top left, rgba(127,168,201,.18), transparent 35%),
+      radial-gradient(circle at top right, rgba(94,140,181,.14), transparent 30%),
+      linear-gradient(180deg,#111a2e 0%,#0f172a 48%,#0b1222 100%);padding:44px 14px}
+    .shell{max-width:640px;margin:0 auto}
+    .topline{height:1px;background:linear-gradient(90deg,transparent,rgba(127,168,201,.75),rgba(94,140,181,.8),transparent);margin:0 28px}
+    .panel{border-radius:28px;overflow:hidden;background:#1e293b;border:1px solid rgba(255,255,255,.10);box-shadow:0 24px 70px rgba(0,0,0,.45)}
+    .hero{position:relative;padding:36px 40px 30px;background:
+      linear-gradient(135deg,rgba(35,45,55,.98) 0%,rgba(30,39,49,.98) 54%,rgba(22,29,37,.98) 100%);overflow:hidden}
+    .brand-row{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:30px}
+    .brand-card{display:inline-flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.10);border-radius:16px}
+    .brand-card img{display:block;width:36px;height:36px;border-radius:9px;background:#fff;object-fit:contain}
+    .brand-name{font-size:17px;font-weight:900;color:#fff;letter-spacing:-.2px}
+    .status-pill{font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#7FA8C9;background:rgba(127,168,201,.12);border:1px solid rgba(127,168,201,.30);border-radius:999px;padding:8px 14px;white-space:nowrap}
+    .eyebrow{position:relative;z-index:1;display:inline-flex;align-items:center;gap:8px;color:#9CC0DE;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px}
+    .dot{width:7px;height:7px;background:#7FA8C9;border-radius:50%;box-shadow:0 0 18px rgba(127,168,201,.8)}
+    .title{position:relative;z-index:1;font-size:32px;line-height:1.2;font-weight:900;color:#fff;letter-spacing:-.8px;margin-bottom:12px}
+    .title span{color:#7FA8C9}
+    .subtitle{position:relative;z-index:1;font-size:15px;line-height:1.75;color:#B8C0CA;max-width:540px}
+    .accent{height:5px;background:linear-gradient(90deg,#7FA8C9 0%,#4a7aa8 42%,#5E8CB5 100%)}
+    .content{padding:34px 40px 38px;background:linear-gradient(180deg,#202d44 0%,#1e293b 100%)}
+    .section-card{background:rgba(15,23,42,.65);border:1px solid rgba(255,255,255,.09);border-radius:22px;padding:24px;margin-bottom:22px}
+    .card-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px}
+    .card-heading h2{font-size:13px;color:#9CC0DE;font-weight:900;letter-spacing:.6px;text-transform:uppercase}
+    .card-heading .line{height:1px;flex:1;background:linear-gradient(90deg,rgba(127,168,201,.35),transparent)}
+    .row{display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+    .row:last-child{border-bottom:0;padding-bottom:0}
+    .row:first-of-type{padding-top:0}
+    .key{width:120px;flex-shrink:0;color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.7px}
+    .value{color:#ECEEF1;font-size:14px;font-weight:700;word-break:break-word;overflow-wrap:anywhere;flex:1}
+    .mono{font-family:'Courier New',monospace;color:#7FA8C9;background:rgba(0,0,0,.35);border:1px solid rgba(127,168,201,.25);border-radius:10px;padding:6px 12px;letter-spacing:1px}
+    .badge{display:inline-block;color:#B5D0E6;background:rgba(94,140,181,.14);border:1px solid rgba(94,140,181,.30);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:900;text-transform:capitalize}
+    .cta-wrap{text-align:center;margin:30px 0}
+    .btn{display:inline-block;color:#ffffff !important;background:linear-gradient(135deg,#7FA8C9 0%,#4a7aa8 58%,#3a5f87 100%);font-size:15px;font-weight:900;letter-spacing:.2px;border-radius:14px;padding:16px 42px;box-shadow:0 14px 34px rgba(127,168,201,.25)}
+    .security{background:rgba(17,24,39,.65);border:1px solid rgba(255,255,255,.09);border-radius:18px;padding:20px;margin-bottom:24px}
+    .security h3{font-size:14px;color:#7FA8C9;margin-bottom:10px}
+    .security p{font-size:13px;line-height:1.7;color:#B8C0CA;margin:6px 0}
+    .footer{padding:28px 30px;text-align:center;background:#151d2f;border-top:1px solid rgba(255,255,255,.07)}
+    .footer-links{margin-bottom:12px}
+    .footer-links a{font-size:12px;color:#9CA3AF;margin:0 10px}
+    .footer-copy{font-size:11px;line-height:1.8;color:#64748B}
+    @media(max-width:600px){
+      .email-bg{padding:16px 8px}
+      .hero,.content{padding-left:20px;padding-right:20px}
+      .title{font-size:26px}
+      .row{display:block;padding:10px 0}
+      .key{width:auto;margin-bottom:4px}
+    }
+  </style>
+</head>
+<body>
+  <div class="email-bg">
+    <div class="shell">
+      <div class="topline"></div>
+      <div class="panel">
+        <div class="hero">
+          <div class="brand-row">
+            <div class="brand-card">
+              {% if logo_url %}<img src="{{ logo_url }}" alt="{{ brand_name }}" width="36" height="36">{% endif %}
+              <span class="brand-name">{{ brand_name }}</span>
+            </div>
+            <div class="status-pill">Company Admin</div>
+          </div>
+          <div class="eyebrow"><span class="dot"></span> Welcome to the AI Workspace</div>
+          <h1 class="title">Welcome, <span>{{ first_name }}</span>!</h1>
+          <p class="subtitle">Your company workspace for <strong>{{ company_name }}</strong> is active and ready. Empower your team with AI calling agents, automated proposals, and commission intelligence.</p>
+        </div>
+        <div class="accent"></div>
+        <div class="content">
+          <div class="section-card">
+            <div class="card-heading">
+              <h2>Workspace Details</h2>
+              <div class="line"></div>
+            </div>
+            <div class="row">
+              <div class="key">Company</div>
+              <div class="value" style="color:#7FA8C9;font-size:15px;font-weight:800">{{ company_name }}</div>
+            </div>
+            <div class="row">
+              <div class="key">Admin Email</div>
+              <div class="value">{{ email }}</div>
+            </div>
+            {% if plain_password %}
+            <div class="row">
+              <div class="key">Password</div>
+              <div class="value mono">{{ plain_password }}</div>
+            </div>
+            {% endif %}
+            <div class="row">
+              <div class="key">Plan</div>
+              <div class="value"><span class="badge">{{ plan_name }} ({{ billing_interval }})</span></div>
+            </div>
+            {% if countries %}
+            <div class="row">
+              <div class="key">Countries</div>
+              <div class="value">{{ countries }}</div>
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="cta-wrap">
+            <a href="{{ login_url }}" class="btn" target="_blank" rel="noopener noreferrer">Access Your Workspace →</a>
+          </div>
+
+          <div class="security">
+            <h3>Getting Started Tips</h3>
+            <p>👥 <strong>Invite Team Members:</strong> Go to the Users section to add agents and team managers.</p>
+            <p>🤖 <strong>AI Calling Agent:</strong> Connect your outbound phone numbers to automate customer inquiries.</p>
+            <p>🔒 <strong>Security:</strong> If you received a temporary password above, please change it upon your first login.</p>
+          </div>
+
+          <p style="font-size:13px;line-height:1.75;color:#94A3B8;text-align:center">
+            Need help setting up your team? Reach out to our support team at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.
+          </p>
+        </div>
+        <div class="footer">
+          <div class="footer-links">
+            <a href="{{ site_url }}">Website</a>
+            <a href="{{ login_url }}">Log In</a>
+            <a href="mailto:{{ support_email }}">Support</a>
+          </div>
+          <div class="footer-copy">
+            © 2026 {{ brand_name }}. All rights reserved.<br>
+            You received this email because you are registered as an administrator for {{ company_name }}.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

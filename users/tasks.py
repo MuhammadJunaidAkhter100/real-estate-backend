@@ -74,7 +74,7 @@ def _notification_recipients(user) -> list[str]:
 @shared_task
 def send_admin_info_email(subject: str, lines: list):
     """Tell the platform admin inbox (ADMIN_NOTIFICATION_EMAILS) that something
-    happened, e.g. a new company or user. Plain text, one fact per line."""
+    happened, e.g. a new company or user. Sends professional HTML email with plain text fallback."""
     to = [
         address.strip()
         for address in getattr(settings, 'ADMIN_NOTIFICATION_EMAILS', [])
@@ -82,6 +82,31 @@ def send_admin_info_email(subject: str, lines: list):
     ]
     if not to:
         return
+
+    # Parse lines into structured key-value pairs for the HTML template
+    items = []
+    for line in lines:
+        line_str = str(line).strip()
+        if not line_str:
+            continue
+        if ":" in line_str:
+            key, val = line_str.split(":", 1)
+            items.append({"key": key.strip(), "value": val.strip()})
+        else:
+            items.append({"key": "", "value": line_str})
+
+    context = {
+        **_brand_context(),
+        "subject": subject,
+        "items": items,
+    }
+
+    try:
+        html_body = render_to_string("emails/admin_notification_email.html", context)
+    except Exception:
+        logger.exception("Failed to render admin_notification_email.html")
+        html_body = None
+
     body = "\n".join(str(line) for line in lines if line) + f"\n\n{_signature()}"
     msg = EmailMultiAlternatives(
         subject=f"{subject} – {_brand()}",
@@ -89,10 +114,72 @@ def send_admin_info_email(subject: str, lines: list):
         from_email=_from_email(),
         to=to,
     )
+    if html_body:
+        msg.attach_alternative(html_body, "text/html")
+
     try:
         msg.send(fail_silently=False)
     except Exception:  # noqa: BLE001
         logger.exception("Failed to send admin info email: %s", subject)
+
+
+def send_company_admin_welcome_email(user, company, plain_password=None):
+    """Send an HTML welcome email to a new company admin."""
+    from payment.plan_limits import get_plan_name
+
+    plan_name = get_plan_name(company.plan)
+    billing_interval = str(company.billing_interval or 'monthly').capitalize()
+    countries = ", ".join(company.operating_countries or user.countries or [])
+
+    context = {
+        **_brand_context(),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "company_name": company.name,
+        "plan_name": plan_name,
+        "billing_interval": billing_interval,
+        "countries": countries,
+        "plain_password": plain_password,
+    }
+
+    try:
+        html_body = render_to_string("emails/company_admin_welcome_email.html", context)
+    except Exception:
+        logger.exception("Failed to render company_admin_welcome_email.html")
+        html_body = None
+
+    plain_lines = [
+        f"Hi {user.first_name},",
+        "",
+        f"Welcome to {_brand()}! Your company workspace for {company.name} is ready.",
+        "",
+        f"Company: {company.name}",
+        f"Email: {user.email}",
+    ]
+    if plain_password:
+        plain_lines.append(f"Password: {plain_password}")
+    plain_lines.extend([
+        f"Plan: {plan_name} ({billing_interval})",
+        "",
+        f"Log in to your workspace: {context.get('login_url')}",
+        "",
+        _signature(),
+    ])
+
+    msg = EmailMultiAlternatives(
+        subject=f"Welcome to {_brand()} – Your Workspace is Ready",
+        body="\n".join(plain_lines),
+        from_email=_from_email(),
+        to=[user.email],
+    )
+    if html_body:
+        msg.attach_alternative(html_body, "text/html")
+
+    try:
+        msg.send(fail_silently=False)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to send company admin welcome email to %s", user.email)
 
 
 def notify_admins(subject: str, lines: list) -> None:

@@ -771,10 +771,11 @@ class AdminCompanyViewSet(viewsets.ModelViewSet):
         ])
 
         if company._admin_plain_password:
-            send_superadmin_created_account_email(
+            from users.tasks import send_company_admin_welcome_email
+            send_company_admin_welcome_email(
                 company._admin_user,
-                company._admin_plain_password,
-                self.request.user
+                company,
+                plain_password=company._admin_plain_password,
             )
 
         return Response(
