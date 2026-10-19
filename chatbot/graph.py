@@ -72,8 +72,12 @@ def _data_scope_note(user_id) -> str:
     return (
         f"\n\n## Data scope\n"
         f"This user belongs to **{company}**. Every tool returns ONLY {company}'s own "
-        f"data (its projects, units, documents, knowledge base, leads, tasks, calls "
-        f"and users). Never claim to see other companies' data. If the user asks "
+        f"data (its projects [both live and draft], units, documents, knowledge base, leads, tasks, calls "
+        f"and users). The company's public website data was imported into the knowledge base "
+        f"('Website Data.txt') in the vector database. When the user asks about {company}, "
+        f"its background, services, about us, team, contact info, or website data, "
+        f"you MUST call `search_knowledge_base` to retrieve and answer from that company data. "
+        f"Never claim to see other companies' data. If the user asks "
         f"about another company, or about all companies, explain that you can only "
         f"access {company}'s data."
     )
@@ -200,9 +204,9 @@ def agent_node(state: State) -> State:
     tool_calls = getattr(response, "tool_calls", None) or []
     if tool_calls:
         names = ", ".join(tc.get("name", "?") for tc in tool_calls)
-        print(f"\n🤖 [AGENT] LLM requested tool(s): {names}")
+        print(f"\n[AGENT] LLM requested tool(s): {names}")
     else:
-        print("\n🤖 [AGENT] LLM answered directly (no tool used)")
+        print("\n[AGENT] LLM answered directly (no tool used)")
 
     return {"messages": [response]}
 

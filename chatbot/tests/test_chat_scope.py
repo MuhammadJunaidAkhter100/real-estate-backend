@@ -113,6 +113,32 @@ class QueryDatabaseScopeTests(ChatScopeTestCase):
             model='Project', filters={'title__icontains': 'Beta'}, config=config_for(self.acme_admin))
         self.assertIn('No Project records found', result)
 
+    def test_company_user_sees_both_live_and_draft_projects(self):
+        acme_draft = Project.objects.create(
+            title='Acme Draft Project', description='', location='Dubai', developer='Dev',
+            starting_price=150000, project_type=Project.ProjectType.RESIDENTIAL,
+            project_status=Project.ProjectStatus.DRAFT, created_by=self.acme_admin,
+        )
+        beta_draft = Project.objects.create(
+            title='Beta Draft Project', description='', location='Dubai', developer='Dev',
+            starting_price=150000, project_type=Project.ProjectType.RESIDENTIAL,
+            project_status=Project.ProjectStatus.DRAFT, created_by=self.beta_admin,
+        )
+        # Without filter: returns both live and draft of own company only
+        result = query_database.func(model='Project', filters={}, config=config_for(self.acme_admin))
+        self.assertEqual(self.titles(result), ['Acme Draft Project', 'Acme Tower'])
+        self.assertNotIn('Beta Draft Project', json.dumps(result))
+
+        # Filter by draft only:
+        result_draft = query_database.func(
+            model='Project', filters={'project_status': 'draft'}, config=config_for(self.acme_admin))
+        self.assertEqual(self.titles(result_draft), ['Acme Draft Project'])
+
+        # Filter by live only:
+        result_live = query_database.func(
+            model='Project', filters={'project_status': 'live'}, config=config_for(self.acme_admin))
+        self.assertEqual(self.titles(result_live), ['Acme Tower'])
+
 
 class ProposalToolScopeTests(ChatScopeTestCase):
     def setUp(self):

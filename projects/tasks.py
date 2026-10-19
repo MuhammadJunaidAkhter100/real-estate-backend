@@ -173,18 +173,26 @@ def extract_document_text_task(self, document_id: int):
     if text.strip():
         try:
             from chatbot.pinecone_service import PineconeService
+            meta = {
+                "source": "project_document",
+                "project_document_id": document.id,
+                "project_id": document.project_id,
+                "project_title": document.project.title,
+                "associated_country": document.project.associated_country,
+                "label": document.label,
+                "original_filename": document.file.name.rsplit('/', 1)[-1],
+            }
+            comp_id = (
+                getattr(document.project.created_by, "company_id", None)
+                if document.project.created_by else None
+            )
+            if comp_id:
+                meta["company_id"] = comp_id
+
             chunks_stored = PineconeService().upsert_project_document(
                 document_id=document.id,
                 text=text,
-                metadata={
-                    "source": "project_document",
-                    "project_document_id": document.id,
-                    "project_id": document.project_id,
-                    "project_title": document.project.title,
-                    "associated_country": document.project.associated_country,
-                    "label": document.label,
-                    "original_filename": document.file.name.rsplit('/', 1)[-1],
-                },
+                metadata=meta,
             )
             logger.info(
                 "Pinecone: indexed %d chunks for project document %s",

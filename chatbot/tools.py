@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_MODELS = {
     "Project": {
         "import": "projects.models.Project",
-        "default_filters": {"project_status": "live"},
+        "default_filters": {},
         "fields": [
             "id", "title", "associated_country", "location", "developer",
             "estimated_completion",
@@ -59,12 +59,13 @@ ALLOWED_MODELS = {
     },
     "Unit": {
         "import": "projects.models.Unit",
-        "default_filters": {"status": "available", "project__project_status": "live"},
+        "default_filters": {"status": "available"},
         "fields": [
             "id", "label", "category", "floor", "area_m2", "area_ft2",
             "list_price", "discounted_price", "currency", "status", "associated_country",
             "project__id", "project__title", "project__location",
             "project__associated_country", "project__developer",
+            "project__project_status",
             "project__starting_price", "project__yield_percentage",
             "project__property_category", "project__number_of_units",
             "project__bed_1", "project__bed_2", "project__bed_3", "project__studio",
@@ -75,10 +76,11 @@ ALLOWED_MODELS = {
     },
     "ProjectDocument": {
         "import": "projects.models.ProjectDocument",
-        "default_filters": {"project__project_status": "live"},
+        "default_filters": {},
         "fields": [
             "id", "label", "project__id", "project__title",
             "project__associated_country", "project__location",
+            "project__project_status",
         ],
         "related": {
             "url": lambda obj: obj.file.url if obj.file else None,
@@ -228,19 +230,19 @@ def query_database(
     Query the Nexusproperty real estate database. Use this for ALL data questions.
 
     Available models:
-      - "Project": live real estate projects
+      - "Project": real estate projects (both live and draft)
         Fields: id, title, associated_country, location, developer,
-                estimated_completion, project_type, status, starting_price,
-                yield_percentage, currency, property_category,
+                estimated_completion, project_type, purpose, status, project_status,
+                starting_price, yield_percentage, currency, property_category,
                 number_of_units, bed_1, bed_2, description
-        Auto-filter: project_status=live
+        Filter by project_status="live" or project_status="draft", or omit to get both.
 
-      - "Unit": available units inside projects
+      - "Unit": available units inside projects (live or draft)
         Fields: id, label, category, floor, area_m2, area_ft2, list_price,
                 discounted_price, currency, status, associated_country,
-                project__title, project__location, project__associated_country,
-                project__developer
-        Auto-filter: status=available, project__project_status=live
+                project__id, project__title, project__location, project__associated_country,
+                project__developer, project__project_status
+        Auto-filter: status=available
 
     Filter syntax — standard Django ORM lookups:
       {"associated_country__icontains": "UAE"}
@@ -297,15 +299,6 @@ def query_database(
     if model == "Unit":
         for key in list(safe_filters.keys()):
             if key == "status" or key.startswith("status__"):
-                safe_filters.pop(key, None)
-    if model in ("Project", "ProjectDocument", "Lead"):
-        # Similarly, keep the model-level default filters authoritative — the
-        # LLM cannot change `project_status` or `project__project_status` to
-        # sneak in draft data.
-        for key in list(safe_filters.keys()):
-            if key in ("project_status", "project__project_status") or key.startswith(
-                ("project_status__", "project__project_status__")
-            ):
                 safe_filters.pop(key, None)
 
     # Area queries are inclusive of the decimal part. Areas are stored with two
@@ -425,7 +418,9 @@ def _projects_for_user(user):
         return Project.objects.all()
     if not user.company_id:
         return Project.objects.none()
-    return Project.objects.filter(created_by__company_id=user.company_id)
+    return Project.objects.filter(
+        Q(created_by__company_id=user.company_id) | Q(visible_to_companies=user.company_id)
+    ).distinct()
 
 
 def _knowledge_base_filter(user):
@@ -923,18 +918,21 @@ def send_proposal_to_lead(
 @tool
 def search_knowledge_base(query: str, config: RunnableConfig = None) -> str:
     """
-    Search the user's uploaded knowledge-base documents (PDF, TXT, CSV, XLSX)
-    stored in the vector database, and return the most relevant passages.
+    Search the company's knowledge base stored in the vector database, including:
+      - The company's imported website data ('Website Data.txt'), crawled when the company was created.
+      - Uploaded company knowledge documents (PDF, TXT, CSV, XLSX).
+      - Project documents (brochures, fact sheets, floor plans).
 
-    Use this whenever the user asks a question whose answer may be found in
-    THEIR uploaded documents / knowledge base (e.g. "what does my document say
-    about ...", "according to the uploaded file ...", or any company-specific
-    info not in the projects/units database).
+    Use this whenever the user asks:
+      - About their company, what the company does, about us, history, services, mission, team, contact info, or website data.
+      - Questions about company-specific knowledge or information found on their website.
+      - What their uploaded documents or project documents say about a topic.
+      - Real estate, legal, mortgage, tax, regulatory, or market questions not in the database.
 
     Args:
-        query: the user's natural-language question to search for.
+        query: the user's natural-language question to search for in the company's knowledge base.
     """
-    print(f"\n📚 [TOOL] KNOWLEDGE BASE SEARCH → query={query!r}")
+    print(f"\n[TOOL] KNOWLEDGE BASE SEARCH -> query={query!r}")
     logger.info("Tool used: search_knowledge_base | query=%s", query)
 
     query = (query or "").strip()
@@ -962,7 +960,7 @@ def search_knowledge_base(query: str, config: RunnableConfig = None) -> str:
 
     top_score = max((m.get("score") or 0) for m in matches) if matches else 0
     print(
-        f"📚 [TOOL] KNOWLEDGE BASE → {len(matches)} raw matches, "
+        f"[TOOL] KNOWLEDGE BASE -> {len(matches)} raw matches, "
         f"{len(strong)} above threshold {SCORE_THRESHOLD} "
         f"(top score={top_score:.3f})"
     )

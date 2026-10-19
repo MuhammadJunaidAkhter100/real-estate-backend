@@ -116,15 +116,19 @@ def extract_knowledge_base_document(self, document_id: int):
 
         result = DataExtractor().extract(data, doc.original_filename)   
         logger.info("Extracted %d chars from document %s (%s)", result.char_count, document_id, result.file_type)     
+        meta = {
+            "user_id": doc.user_id,
+            "original_filename": doc.original_filename,
+            "file_type": result.file_type,
+            "associated_country": doc.associated_country,
+        }
+        if doc.user and getattr(doc.user, "company_id", None):
+            meta["company_id"] = doc.user.company_id
+
         chunks_stored = PineconeService().upsert_document(
             document_id=doc.pk,
             text=result.text,
-            metadata={
-                "user_id": doc.user_id,
-                "original_filename": doc.original_filename,
-                "file_type": result.file_type,
-                "associated_country": doc.associated_country,
-            },
+            metadata=meta,
         )
         
         logger.info("Chunks stored for document %s: %d", document_id, chunks_stored)
