@@ -24,6 +24,7 @@ from drf_yasg import openapi
 from django.conf.urls.static import static
 
 from users.views import ChangePasswordView, CustomTokenObtainPairView, ForgotPasswordView, MeView, ResetPasswordView, VerifyOTPView
+from payment.views import RegisterCompanyView
 
 project_name = settings.APP_NAME  # Replace with your project name
 
@@ -40,6 +41,7 @@ schema_view = get_schema_view(
 urlpatterns = [
     path('api/admin/', admin.site.urls),
 
+    path('api/auth/register-company/', RegisterCompanyView.as_view(), name='register-company'),
     path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh_token/', TokenRefreshView.as_view(), name='token_refresh'),
 

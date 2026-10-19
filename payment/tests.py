@@ -155,3 +155,71 @@ class WebhookTests(TestCase):
         self.assertEqual(call_args['line_items'][0]['price_data']['unit_amount'], 4900)
         self.assertEqual(call_args['line_items'][0]['price_data']['recurring']['interval'], 'month')
         self.assertEqual(call_args['metadata']['plan'], 'pro')
+
+
+class RegisterCompanyTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+
+    @patch('whatsapp.tasks.send_company_admin_welcome_task.delay')
+    @patch('users.tasks.scrape_company_website_task.delay')
+    def test_register_company_flow(self, mock_scrape, mock_whatsapp):
+        from django.core import mail
+        from django.test import override_settings
+
+        with override_settings(ADMIN_NOTIFICATION_EMAILS=['superadmin@nexusproperty.io']):
+            with self.captureOnCommitCallbacks(execute=True):
+                payload = {
+                    "company_name": "inaam.ai",
+                    "countries": ["Algeria", "Andorra"],
+                    "first_name": "inaam",
+                    "last_name": "Ullah",
+                    "email": "gonotab953@goldlicai.com",
+                    "password": "inaam@123",
+                    "plan": "basic",
+                    "interval": "monthly",
+                    "website": "https://legacyinvestmentconsultancy.com/",
+                    "phone": "+923116585935",
+                }
+                response = self.client.post('/api/auth/register-company/', payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+        self.assertIn('user', response.data)
+
+        # Check DB records
+        company = Company.objects.get(name="inaam.ai")
+        self.assertEqual(company.phone, "+923116585935")
+        self.assertEqual(company.website, "https://legacyinvestmentconsultancy.com/")
+        self.assertEqual(company.operating_countries, ["Algeria", "Andorra"])
+
+        user = User.objects.get(email="gonotab953@goldlicai.com")
+        self.assertEqual(user.role, User.Role.COMPANY_ADMIN)
+        self.assertEqual(user.company, company)
+
+        # Check website scraping queued
+        mock_scrape.assert_called_once_with(company.pk, "https://legacyinvestmentconsultancy.com/")
+
+        # Check WhatsApp welcome queued
+        mock_whatsapp.assert_called_once_with(company.pk, user.pk, None)
+
+        # Check emails sent:
+        # 1. Super admin email (to superadmin@nexusproperty.io)
+        # 2. Company admin welcome email (to gonotab953@goldlicai.com)
+        admin_emails = [m for m in mail.outbox if 'superadmin@nexusproperty.io' in m.to]
+        self.assertEqual(len(admin_emails), 1)
+        admin_mail = admin_emails[0]
+        self.assertIn("New company signed up", admin_mail.subject)
+        self.assertIn("Company: inaam.ai", admin_mail.body)
+        self.assertTrue(any(mime == 'text/html' for _, mime in admin_mail.alternatives))
+
+        welcome_emails = [m for m in mail.outbox if 'gonotab953@goldlicai.com' in m.to]
+        self.assertEqual(len(welcome_emails), 1)
+        welcome_mail = welcome_emails[0]
+        self.assertIn("Welcome to", welcome_mail.subject)
+        self.assertIn("Your Workspace is Ready", welcome_mail.subject)
+        self.assertTrue(any(mime == 'text/html' for _, mime in welcome_mail.alternatives))
+

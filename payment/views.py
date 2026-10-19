@@ -11,7 +11,14 @@ from rest_framework.views import APIView
 from payment import plan_limits, services, stripe_client, webhooks
 from payment.guards import payment_exempt
 from payment.models import ProcessedStripeEvent
-from payment.serializers import CheckoutRequestSerializer, VerifySessionSerializer
+from payment.serializers import (
+    CheckoutRequestSerializer,
+    CompanyNameTaken,
+    EmailAlreadyRegistered,
+    RegisterCompanySerializer,
+    VerifySessionSerializer,
+    issue_tokens,
+)
 from users.models import Company
 
 logger = logging.getLogger(__name__)
@@ -314,3 +321,70 @@ class StripeWebhookView(APIView):
             return Response({'detail': 'Webhook processing error.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({'received': True})
+
+
+@payment_exempt
+class RegisterCompanyView(APIView):
+    """Public self-serve company signup endpoint."""
+
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    @swagger_auto_schema(
+        tags=['Authentication'],
+        operation_summary="Register Company",
+        operation_description=(
+            "Public endpoint to sign up a new company with an initial company admin.\n\n"
+            "Features:\n"
+            "- Creates Company and Company Admin user account\n"
+            "- Sends branded HTML welcome email with workspace access details to the company admin\n"
+            "- Sends branded HTML alert email to the super admin\n"
+            "- Automatically launches background website scraping if a website is provided\n"
+            "- Issues JWT tokens (access + refresh) and optionally generates a dynamic Stripe checkout URL for paid plans."
+        ),
+        request_body=RegisterCompanySerializer,
+        responses={
+            201: "Created: returns auth tokens, user info, and optional checkoutUrl",
+            400: "Validation error",
+            409: "Email already registered or Company name already taken",
+        },
+    )
+    def post(self, request):
+        serializer = RegisterCompanySerializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+            company, admin_user = serializer.save()
+        except EmailAlreadyRegistered:
+            return Response(
+                {'detail': 'Email already registered.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CompanyNameTaken:
+            return Response(
+                {'detail': 'Company name already taken.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        tokens = issue_tokens(admin_user)
+        checkout_url = None
+
+        plan = plan_limits.normalize_plan(company.plan)
+        if plan in (plan_limits.PLAN_PRO, plan_limits.PLAN_PLUS, plan_limits.PLAN_TOP_TIER):
+            try:
+                session = stripe_client.create_checkout_session(
+                    company=company,
+                    plan=plan,
+                    interval=company.billing_interval or 'monthly',
+                    success_url=_frontend_url('/subscription?session_id={CHECKOUT_SESSION_ID}&success=true'),
+                    cancel_url=_frontend_url('/subscription?canceled=true'),
+                )
+                checkout_url = session.get('url')
+            except Exception as exc:
+                logger.warning("Could not create Stripe checkout session on signup: %s", exc)
+
+        response_data = {
+            **tokens,
+            'checkoutUrl': checkout_url,
+        }
+        return Response(response_data, status=status.HTTP_201_CREATED)
+
