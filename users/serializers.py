@@ -57,9 +57,13 @@ def validate_countries(value):
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
+    def get_login_user_data(cls, user):
+        return LoginUserDetailSerializer(user).data
+
+    @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        token['user'] = UserDetailSerializer(user).data
+        token['user'] = cls.get_login_user_data(user)
         return token
 
     def validate(self, attrs):
@@ -87,7 +91,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         self.user = user
         data = super().validate(attrs)
-        data['user'] = UserDetailSerializer(user).data
+        data['user'] = self.get_login_user_data(user)
         return data
 
 
@@ -341,6 +345,15 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'profile_image',
         ]
         read_only_fields = fields
+
+
+class LoginCompanyDetailSerializer(CompanyDetailSerializer):
+    class Meta(CompanyDetailSerializer.Meta):
+        fields = [field for field in CompanyDetailSerializer.Meta.fields if field != 'website_data']
+
+
+class LoginUserDetailSerializer(UserDetailSerializer):
+    company = LoginCompanyDetailSerializer()
 
 
 class MeUpdateSerializer(serializers.ModelSerializer):

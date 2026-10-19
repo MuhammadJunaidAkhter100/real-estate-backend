@@ -14,6 +14,41 @@ from users.tasks import check_and_update_task_expirations
 User = get_user_model()
 
 
+class LoginResponseTestCase(TestCase):
+    def test_login_omits_company_website_data_from_response_and_tokens(self):
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+        from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+
+        company = Company.objects.create(
+            name='Login Test Company',
+            website_data={
+                'projects': [{'name': 'Private Project Details'}],
+                'total_projects': 1,
+            },
+        )
+        user = User.objects.create_user(
+            email='login-test@example.com',
+            first_name='Login',
+            last_name='Tester',
+            password='password123',
+            company=company,
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+        )
+
+        response = APIClient().post(
+            reverse('token_obtain_pair'),
+            {'email': user.email, 'password': 'password123'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('website_data', response.data['user']['company'])
+        self.assertNotIn('website_data', AccessToken(response.data['access'])['user']['company'])
+        self.assertNotIn('website_data', RefreshToken(response.data['refresh'])['user']['company'])
+
+
 class CompanyCreationTestCase(TestCase):
     def test_reuses_existing_admin_for_new_company(self):
         from users.serializers import CompanyCreateSerializer
