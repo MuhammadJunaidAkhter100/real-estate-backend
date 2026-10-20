@@ -1,15 +1,12 @@
 from datetime import timedelta
 import logging
-from io import BytesIO
 
 import stripe
 from django.conf import settings
 from django.core.paginator import EmptyPage, Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from django.http import HttpResponse
 from django.utils import timezone
-from docx import Document
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import permissions, status, viewsets
@@ -379,56 +376,32 @@ class RegisterCompanyView(APIView):
 
 @payment_exempt
 class WebsiteScrapeDocxView(APIView):
-    """Public endpoint that scrapes a website and returns the text as a .docx file."""
+    """Queue website import into the company's knowledge base and projects."""
 
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    @staticmethod
-    def _build_docx_bytes(website: str) -> bytes:
-        from chatbot.website_knowledge import crawl_website, normalize_website_url
-
-        normalized = normalize_website_url(website)
-        if not normalized:
-            raise ValueError('A valid website URL is required.')
-
-        content = crawl_website(normalized)
-        doc = Document()
-        doc.add_heading('Website Data', level=1)
-        doc.add_paragraph(f'Website: {content.website}')
-
-        for page in content.pages:
-            doc.add_heading(page.title or page.url or 'Website Page', level=2)
-            if page.description:
-                doc.add_paragraph(page.description)
-            if page.url:
-                doc.add_paragraph(f'URL: {page.url}')
-            for line in page.lines:
-                if line.strip():
-                    doc.add_paragraph(line)
-
-        buffer = BytesIO()
-        doc.save(buffer)
-        return buffer.getvalue()
+    permission_classes = [permissions.IsAuthenticated]
 
     @swagger_auto_schema(
         tags=['Authentication'],
-        operation_summary='Scrape Website and Export DOCX',
+        operation_summary='Import Website into Knowledge Base and Create Projects',
         operation_description=(
-            'Public endpoint that fetches the website content using the same scraper flow as company onboarding, '
-            'and returns the results as a Microsoft Word document (.docx).'
+            'Queues the same background website import used during company signup. Creates or resets the '
+            'company website knowledge-base document, stores the scraped content as DOCX, and extracts projects.'
         ),
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
                 'website': openapi.Schema(type=openapi.TYPE_STRING, description='Website URL to scrape'),
+                'company_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='Optional target company ID (superadmin only)'),
             },
             required=['website'],
         ),
         responses={
-            200: 'Word document file response',
+            202: 'Website import queued',
             400: 'Invalid website URL',
-            500: 'Scraping failed',
+            401: 'Authentication required',
+            403: 'Not allowed to scrape for this company',
+            404: 'Company not found',
+            503: 'Could not queue website import',
         },
     )
     def post(self, request):
@@ -436,43 +409,86 @@ class WebsiteScrapeDocxView(APIView):
         if not website:
             return Response({'detail': 'Website URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
+
+
+
+
+        from chatbot.website_knowledge import normalize_website_url, prepare_website_document
+
+        website = normalize_website_url(website)
+        if not website:
+            return Response({'detail': 'A valid website URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
         company = None
         company_id = request.data.get('company_id') or request.query_params.get('company_id')
-        if company_id:
+        user = request.user
+        is_superadmin = user.is_superuser or user.role == User.Role.SUPERADMIN
+        if company_id and is_superadmin:
             try:
                 company = Company.objects.filter(pk=int(company_id)).first()
             except (TypeError, ValueError):
                 company = None
+            if company is None:
+                return Response({'detail': 'Company not found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            company = getattr(user, 'company', None)
+            if company_id and (company is None or str(company.pk) != str(company_id)):
+                return Response(
+                    {'detail': 'You can only scrape a website for your own company.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-        if company is None and getattr(request.user, 'is_authenticated', False):
-            company = getattr(request.user, 'company', None)
+        if company is None:
+            return Response(
+                {'detail': 'Your user account is not linked to a company.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        if company is not None:
-            company.website = website
-            company.website_scrape_status = 'processing'
-            company.website_data = {
-                'status': 'processing',
-                'progress': 5,
-                'stage': 'Scraping initiated...',
-                'total_projects': 0,
-                'projects_created_or_updated': 0,
-            }
-            company.save(update_fields=['website', 'website_scrape_status', 'website_data'])
+        company.website = website
+        company.website_scrape_status = 'processing'
+        company.website_data = {
+            'status': 'processing',
+            'progress': 5,
+            'stage': 'Scraping initiated...',
+            'total_projects': 0,
+            'projects_created_or_updated': 0,
+        }
+        company.save(update_fields=['website', 'website_scrape_status', 'website_data'])
 
-            from users.tasks import scrape_company_website_task
-            scrape_company_website_task.delay(company.pk, company.website)
+        owner = user if user.company_id == company.pk else None
+        document = prepare_website_document(company, website, owner=owner)
+        if document is None:
+            return Response(
+                {'detail': 'The company has no user to own its website knowledge-base document.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            docx_bytes = self._build_docx_bytes(website)
-        except ValueError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as exc:
-            logger.exception('Website DOCX export failed for %s: %s', website, exc)
-            return Response({'detail': 'Could not scrape the website and generate a Word document.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            from users.tasks import scrape_company_website_task
 
-        response = HttpResponse(docx_bytes, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-        response['Content-Disposition'] = 'attachment; filename="website_data.docx"'
-        return response
+            task = scrape_company_website_task.delay(company.pk, website)
+        except Exception:
+            document.status = document.Status.FAILED
+            document.error = 'Could not queue website import.'
+            document.save(update_fields=['status', 'error', 'updated_at'])
+            company.website_scrape_status = 'failed'
+            company.website_data.update({'status': 'failed', 'error': document.error})
+            company.save(update_fields=['website_scrape_status', 'website_data'])
+            logger.exception('Could not queue website scrape for company %s', company.pk)
+            return Response(
+                {'detail': 'Could not queue website import. Please try again.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response({
+            'detail': 'Website import and project extraction queued.',
+            'status': 'processing',
+            'website': website,
+            'company_id': company.pk,
+            'document_id': document.pk,
+            'document_status': document.status,
+            'task_id': task.id,
+        }, status=status.HTTP_202_ACCEPTED)
 
 
 @payment_exempt

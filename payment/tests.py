@@ -227,20 +227,11 @@ class WebsiteScrapeWordExportTests(TestCase):
     @patch('users.tasks.scrape_company_website_task.delay')
     @patch('chatbot.website_knowledge.crawl_website')
     @patch('chatbot.website_knowledge.normalize_website_url', return_value='https://example.com')
-    def test_scrape_website_word_endpoint_starts_company_scraping_flow(self, mock_normalize, mock_crawl_website, mock_scrape):
-        from chatbot.website_knowledge import WebsiteContent, WebsitePage
-
-        mock_crawl_website.return_value = WebsiteContent(
-            website='https://example.com',
-            pages=[
-                WebsitePage(
-                    url='https://example.com',
-                    title='Example Company',
-                    description='Example description',
-                    lines=['About us', 'We build homes in Dubai.'],
-                )
-            ],
-        )
+    def test_scrape_website_endpoint_queues_background_flow_and_creates_kb_document(
+        self, mock_normalize, mock_crawl_website, mock_scrape
+    ):
+        from chatbot.models import KnowledgeBaseDocument
+        from rest_framework_simplejwt.tokens import AccessToken
 
         company = Company.objects.create(name='Example Realty', plan='free')
         admin = User.objects.create_user(
@@ -250,37 +241,34 @@ class WebsiteScrapeWordExportTests(TestCase):
             role=User.Role.COMPANY_ADMIN,
             company=company,
         )
-        self.client.force_authenticate(user=admin)
+        mock_scrape.return_value.id = 'scrape-task-id'
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(admin)}')
 
         response = self.client.post('/api/auth/scrape-website-docx/', {'website': 'https://example.com'}, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         company.refresh_from_db()
         self.assertEqual(company.website, 'https://example.com')
         self.assertEqual(company.website_scrape_status, 'processing')
-        mock_scrape.assert_called_once_with(company.pk, 'https://example.com')
-
-    @patch('chatbot.website_knowledge.crawl_website')
-    @patch('chatbot.website_knowledge.normalize_website_url', return_value='https://example.com')
-    def test_scrape_website_word_endpoint(self, mock_normalize, mock_crawl_website):
-        from chatbot.website_knowledge import WebsiteContent, WebsitePage
-
-        mock_crawl_website.return_value = WebsiteContent(
-            website='https://example.com',
-            pages=[
-                WebsitePage(
-                    url='https://example.com',
-                    title='Example Company',
-                    description='Example description',
-                    lines=['About us', 'We build homes in Dubai.'],
-                )
-            ],
+        document = KnowledgeBaseDocument.objects.get(
+            user__company=company,
+            source=KnowledgeBaseDocument.Source.WEBSITE,
         )
+        self.assertEqual(document.status, KnowledgeBaseDocument.Status.PENDING)
+        self.assertEqual(document.original_filename, 'Website Data.docx')
+        self.assertEqual(document.file_type, 'docx')
+        mock_scrape.assert_called_once_with(company.pk, 'https://example.com')
+        mock_crawl_website.assert_not_called()
+        self.assertEqual(response.data['document_id'], document.pk)
+        self.assertEqual(response.data['task_id'], 'scrape-task-id')
 
+    @patch('users.tasks.scrape_company_website_task.delay')
+    def test_scrape_website_endpoint_requires_authentication(self, mock_scrape):
+        company = Company.objects.create(name='Private Realty', plan='free')
         response = self.client.post('/api/auth/scrape-website-docx/', {'website': 'https://example.com'}, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-        self.assertIn('attachment; filename="website_data.docx"', response['Content-Disposition'])
-        self.assertGreater(len(response.content), 0)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        company.refresh_from_db()
+        self.assertEqual(company.website, '')
+        mock_scrape.assert_not_called()
 

@@ -50,7 +50,7 @@ urlpatterns = [
     path('api/admin/', admin.site.urls),
 
     path('api/auth/register-company/', RegisterCompanyView.as_view(), name='register-company'),
-    path('api/auth/scrape-website-docx/', WebsiteScrapeDocxView.as_view(), name='scrape-website-docx'),
+    path('api/auth/re-scrape/', WebsiteScrapeDocxView.as_view(), name='scrape-website-docx'),
     path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh_token/', TokenRefreshView.as_view(), name='token_refresh'),
 
