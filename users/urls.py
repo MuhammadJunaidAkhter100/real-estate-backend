@@ -11,6 +11,7 @@ from users.views import (
     LatestCommissionsView,
     LeadViewSet,
     StreamActivityView,
+    SupportContactView,
     TaskViewSet,
     UsersViewSet,
 )
@@ -35,6 +36,7 @@ urlpatterns = [
     path('company/countries/', CompanyCountriesView.as_view(), name='company-countries'),
     path('company/countries/<str:country>/', CompanyCountryDetailView.as_view(), name='company-country-detail'),
     path('company/scraping-status/', CompanyScrapingStatusView.as_view(), name='company-scraping-status'),
+    path('support/', SupportContactView.as_view(), name='support-contact'),
 ]
 
 urlpatterns += router.urls

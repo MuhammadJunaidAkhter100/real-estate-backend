@@ -10,13 +10,13 @@ from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import exceptions, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from chatbot.data_extraction import DataExtractor
 from chatbot.public_chat import PUBLIC_MESSAGE_MAX_CHARS, astream_reply, clean_history
-from chatbot.models import ChatSession, KnowledgeBaseDocument
+from chatbot.models import ChatSession, KnowledgeBaseDocument, PublicKnowledgeBaseDocument
 from chatbot.graph import delete_history, get_history, stream_response
 from chatbot.throttles import (
     PublicChatBurstThrottle,
@@ -25,7 +25,9 @@ from chatbot.throttles import (
 )
 from chatbot.tasks import (
     extract_knowledge_base_document,
+    extract_public_knowledge_base_document,
     fail_stalled_documents,
+    fail_stalled_public_documents,
     import_company_website_knowledge,
 )
 from chatbot.website_knowledge import (
@@ -248,12 +250,9 @@ class PublicChatStreamView(APIView):
             "Website chatbot for visitors who are not logged in. Streams the reply as "
             "Server-Sent Events, in the same format as `/api/chatbot/stream/`.\n\n"
             "- No login (send no Authorization header).\n"
-            "- Answers only about Nexusproperty from the public website: features, services, "
-            "pricing, onboarding, contact. It has no access to any company's data and "
+            "- Answers only from the public knowledge base. It has no access to any company's data and "
             "cannot create proposals, leads or tasks.\n"
-            "- Nothing is saved on the server. Send the conversation so far in "
-            "`history` (the latest 10 messages are used).\n"
-            f"- `message` is limited to {PUBLIC_MESSAGE_MAX_CHARS} characters.\n"
+            "- Nothing is saved on the server. Send the conversation so far in `history`.\n"
             "- Rate limited per visitor (10 a minute, 150 a day); 429 when exceeded."
         ),
         request_body=openapi.Schema(
@@ -281,7 +280,7 @@ class PublicChatStreamView(APIView):
                 'data: {"type": "done"}\n'
                 'data: {"type": "error", "detail": "..."}'
             )),
-            400: 'Missing or too long message',
+            400: 'Missing message',
             429: 'Too many messages',
         },
     )
@@ -291,7 +290,7 @@ class PublicChatStreamView(APIView):
         message = message.strip() if isinstance(message, str) else ''
         if not message:
             return Response({'detail': 'message is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if len(message) > PUBLIC_MESSAGE_MAX_CHARS:
+        if PUBLIC_MESSAGE_MAX_CHARS and len(message) > PUBLIC_MESSAGE_MAX_CHARS:
             return Response(
                 {'detail': f'Please keep your message under {PUBLIC_MESSAGE_MAX_CHARS} characters.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -708,3 +707,173 @@ class KnowledgeBaseWebsiteView(APIView):
         doc.refresh_from_db()
 
         return Response(_website_payload(company, doc), status=status.HTTP_202_ACCEPTED)
+
+
+# ── Admin Public Knowledge Base ───────────────────────────────────────────────
+
+PUBLIC_KB_DOCUMENT_FIELDS = (
+    'id', 'original_filename', 'file_type', 'hosted_url',
+    'status', 'error', 'task_id', 'chunk_count',
+    'created_at', 'updated_at',
+)
+
+
+class IsAdminOrSuperAdmin(BasePermission):
+    """Allow access only to platform administrators/superadmins."""
+    message = "Only platform administrators can manage public knowledge base documents."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_superuser
+                or user.is_staff
+                or getattr(user, 'role', '') in ['superadmin', 'axiyon_admin']
+            )
+        )
+
+
+class AdminPublicKnowledgeBaseView(APIView):
+    """
+    GET  /api/chatbot/admin/public-kb/  → List all public knowledge-base documents.
+    POST /api/chatbot/admin/public-kb/  → Upload documents (PDF, TXT, CSV, XLSX, XLS, DOCX)
+                                          to be embedded in Pinecone for the public chatbot.
+    """
+    permission_classes = [IsAuthenticated, IsAdminOrSuperAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @swagger_auto_schema(
+        tags=['Admin Public KB'],
+        operation_description='List all public knowledge-base documents used by the public chatbot.',
+        responses={200: 'List of public documents'},
+    )
+    def get(self, request):
+        documents = PublicKnowledgeBaseDocument.objects.all()
+        fail_stalled_public_documents(documents)
+        return Response(list(documents.values(*PUBLIC_KB_DOCUMENT_FIELDS)))
+
+    @swagger_auto_schema(
+        tags=['Admin Public KB'],
+        operation_description=(
+            "Upload public knowledge-base documents (PDF, TXT, CSV, XLSX, XLS, DOCX). "
+            "Text extraction and Pinecone vectorization run asynchronously."
+        ),
+        manual_parameters=[
+            openapi.Parameter(
+                'files', openapi.IN_FORM,
+                description='One or more documents (PDF, TXT, CSV, XLSX, XLS, DOCX).',
+                type=openapi.TYPE_FILE, required=True,
+            ),
+        ],
+        responses={202: openapi.Response(description='Documents queued for extraction.')},
+    )
+    def post(self, request):
+        files = request.FILES.getlist('files') or request.FILES.getlist('file')
+        if not files:
+            return Response(
+                {'detail': 'No files provided. Use the "files" form field.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        extractor = DataExtractor()
+        created = []
+        rejected = []
+
+        for upload in files:
+            if not extractor.is_supported(upload.name):
+                rejected.append({
+                    'original_filename': upload.name,
+                    'detail': 'Unsupported file type. Allowed: PDF, TXT, CSV, XLSX, XLS, DOCX.',
+                })
+                continue
+
+            doc = PublicKnowledgeBaseDocument.objects.create(
+                uploaded_by=request.user,
+                file=upload,
+                original_filename=upload.name,
+                file_type=os.path.splitext(upload.name)[1].lower().lstrip('.'),
+            )
+            try:
+                doc.hosted_url = doc.file.url
+            except Exception:  # noqa: BLE001
+                doc.hosted_url = ''
+
+            async_result = extract_public_knowledge_base_document.delay(doc.pk)
+            doc.task_id = async_result.id or ''
+            doc.save(update_fields=['hosted_url', 'task_id', 'updated_at'])
+
+            created.append({
+                'id': doc.pk,
+                'original_filename': doc.original_filename,
+                'file_type': doc.file_type,
+                'hosted_url': doc.hosted_url,
+                'status': doc.status,
+                'task_id': doc.task_id,
+            })
+
+        if not created:
+            return Response(
+                {'detail': 'No valid files to process.', 'rejected': rejected},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {'documents': created, 'rejected': rejected},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class AdminPublicKnowledgeBaseDeleteView(APIView):
+    """
+    DELETE /api/chatbot/admin/public-kb/<document_id>/
+
+    Delete a public knowledge-base document, its stored file, and its Pinecone vectors.
+    """
+    permission_classes = [IsAuthenticated, IsAdminOrSuperAdmin]
+
+    @swagger_auto_schema(
+        tags=['Admin Public KB'],
+        operation_description='Delete a public knowledge-base document and its Pinecone vectors.',
+        responses={204: 'Deleted', 404: 'Not found'},
+    )
+    def delete(self, request, document_id):
+        try:
+            doc = PublicKnowledgeBaseDocument.objects.get(pk=document_id)
+        except PublicKnowledgeBaseDocument.DoesNotExist:
+            return Response({'detail': 'Document not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            from chatbot.pinecone_service import PineconeService
+            PineconeService().delete_public_document(doc.pk, chunk_count=doc.chunk_count)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to delete Pinecone vectors for public doc %s", doc.pk)
+
+        if doc.file:
+            doc.file.delete(save=False)
+        doc.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminPublicKnowledgeBaseStatusView(APIView):
+    """
+    GET /api/chatbot/admin/public-kb/<document_id>/status/
+
+    Check the extraction and indexing status of a public knowledge-base document.
+    """
+    permission_classes = [IsAuthenticated, IsAdminOrSuperAdmin]
+
+    @swagger_auto_schema(
+        tags=['Admin Public KB'],
+        operation_description='Check status of a single public knowledge-base document.',
+        responses={200: 'Document status', 404: 'Not found'},
+    )
+    def get(self, request, document_id):
+        try:
+            doc = PublicKnowledgeBaseDocument.objects.get(pk=document_id)
+        except PublicKnowledgeBaseDocument.DoesNotExist:
+            return Response({'detail': 'Document not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({name: getattr(doc, name) for name in PUBLIC_KB_DOCUMENT_FIELDS})
+

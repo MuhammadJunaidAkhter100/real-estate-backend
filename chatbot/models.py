@@ -75,3 +75,48 @@ class KnowledgeBaseDocument(models.Model):
 
     def __str__(self):
         return f"KBDoc #{self.pk} - {self.original_filename} ({self.status})"
+
+
+def _public_kb_upload_path(instance, filename):
+    return f"public_knowledge_base/{filename}"
+
+
+class PublicKnowledgeBaseDocument(models.Model):
+    """A public knowledge-base document whose content is vectorized in Pinecone
+
+    for the unauthenticated website chatbot (/api/chatbot/public/stream/).
+    Managed exclusively by administrators.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        PROCESSING = 'processing', 'Processing'
+        COMPLETED = 'completed', 'Completed'
+        FAILED = 'failed', 'Failed'
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='public_knowledge_base_documents',
+    )
+    file = models.FileField(upload_to=_public_kb_upload_path)
+    hosted_url = models.URLField(max_length=1000, blank=True, default='')
+    original_filename = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=10, blank=True, default='')
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING,
+    )
+    error = models.TextField(blank=True, default='')
+    task_id = models.CharField(max_length=255, blank=True, default='')
+    chunk_count = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"PublicKBDoc #{self.pk} - {self.original_filename} ({self.status})"

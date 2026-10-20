@@ -86,3 +86,81 @@ class UsageCounter(models.Model):
 
     def __str__(self):
         return f"{self.company_id} {self.kind} {self.period_start:%Y-%m} = {self.used}"
+
+
+class SubscriptionPlan(models.Model):
+    """Dynamic subscription plans created and managed by admins."""
+
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=100, unique=True, blank=True)
+    description = models.TextField(blank=True, default='')
+    icon = models.CharField(max_length=100, blank=True, default='')
+    badge = models.CharField(max_length=100, blank=True, default='')
+
+    # Pricing
+    monthly_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    yearly_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    currency = models.CharField(max_length=10, default='USD')
+
+    # Software limits
+    ai_credits = models.PositiveIntegerField(null=True, blank=True, default=100)
+    is_credits_unlimited = models.BooleanField(default=False)
+
+    agents = models.PositiveIntegerField(null=True, blank=True, default=5)
+    is_agents_unlimited = models.BooleanField(default=False)
+
+    team_managers = models.PositiveIntegerField(null=True, blank=True, default=1)
+    is_team_managers_unlimited = models.BooleanField(default=False)
+
+    # Software features
+    features = models.JSONField(default=dict, blank=True)
+    custom_features = models.JSONField(default=list, blank=True)
+
+    # Status & order
+    is_active = models.BooleanField(default=True)
+    order = models.IntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+        verbose_name = 'Subscription Plan'
+        verbose_name_plural = 'Subscription Plans'
+
+    def __str__(self):
+        return f"{self.name} (${self.monthly_price}/mo)"
+
+    def save(self, *args, **kwargs):
+        from django.utils.text import slugify
+
+        if not self.slug:
+            base_slug = slugify(self.name) or 'plan'
+            slug = base_slug
+            idx = 1
+            while SubscriptionPlan.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{idx}"
+                idx += 1
+            self.slug = slug
+
+        if not self.pk and not self.order:
+            from django.db.models import Max
+            max_order = SubscriptionPlan.objects.aggregate(m=Max('order'))['m'] or 0
+            self.order = max_order + 1
+
+        if self.is_credits_unlimited:
+            self.ai_credits = None
+        if self.is_agents_unlimited:
+            self.agents = None
+        if self.is_team_managers_unlimited:
+            self.team_managers = None
+
+        super().save(*args, **kwargs)
+
+    @property
+    def users_limit(self):
+        """Total users = managers + agents, or None if any is unlimited."""
+        if self.is_agents_unlimited or self.is_team_managers_unlimited:
+            return None
+        return (self.team_managers or 0) + (self.agents or 0)
+

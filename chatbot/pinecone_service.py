@@ -215,6 +215,73 @@ class PineconeService:
         except Exception as exc:  # noqa: BLE001
             raise PineconeServiceError(f"Failed to delete vectors: {exc}") from exc
 
+    def upsert_public_document(
+        self, document_id: int, text: str, metadata: dict | None = None,
+    ) -> int:
+        """
+        Chunk, embed and upsert the text of a PublicKnowledgeBaseDocument
+        for the public website chatbot.
+        """
+        chunks = self._chunk_text(text)
+        if not chunks:
+            logger.info("No text to index for public document %s", document_id)
+            return 0
+
+        embeddings = self._embed(chunks)
+        base_meta = {**(metadata or {}), "source": "public_document", "is_public": True}
+
+        vectors = []
+        for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            vectors.append({
+                "id": f"public-doc-{document_id}-{idx}",
+                "values": embedding,
+                "metadata": {
+                    **base_meta,
+                    "public_document_id": document_id,
+                    "chunk_index": idx,
+                    "text": chunk,
+                },
+            })
+
+        try:
+            self.index.delete(filter={"public_document_id": document_id})
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            for start in range(0, len(vectors), UPSERT_BATCH):
+                self.index.upsert(vectors=vectors[start:start + UPSERT_BATCH])
+        except Exception as exc:  # noqa: BLE001
+            raise PineconeServiceError(f"Failed to upsert vectors: {exc}") from exc
+
+        logger.info(
+            "Upserted %d chunks for public document %s", len(vectors), document_id,
+        )
+        return len(vectors)
+
+    def delete_public_document(self, document_id: int, chunk_count: int | None = None) -> None:
+        """Delete all vectors belonging to a PublicKnowledgeBaseDocument."""
+        deleted_by_filter = False
+        try:
+            self.index.delete(filter={"public_document_id": document_id})
+            deleted_by_filter = True
+        except Exception:  # noqa: BLE001
+            pass
+
+        if not deleted_by_filter or chunk_count:
+            max_chunks = chunk_count or 200
+            ids = [f"public-doc-{document_id}-{idx}" for idx in range(max_chunks)]
+            try:
+                for begin in range(0, len(ids), UPSERT_BATCH):
+                    self.index.delete(ids=ids[begin:begin + UPSERT_BATCH])
+            except Exception as exc:  # noqa: BLE001
+                if not deleted_by_filter:
+                    raise PineconeServiceError(f"Failed to delete public vectors: {exc}") from exc
+
+    def search_public(self, query: str, top_k: int = 5) -> list[dict]:
+        """Semantic search over the public knowledge base only."""
+        return self.search(query=query, top_k=top_k, metadata_filter={"source": "public_document"})
+
     def search(self, query: str, top_k: int = 5, metadata_filter: dict | None = None) -> list[dict]:
         """
         Semantic search over the knowledge base.

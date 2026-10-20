@@ -14,35 +14,25 @@ from users.models import Company, User
 class PaymentPlansTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.company = Company.objects.create(name="Test Co", plan="free")
+        self.admin = User.objects.create_user(
+            email="admin@test.com",
+            first_name="Admin",
+            last_name="User",
+            role=User.Role.COMPANY_ADMIN,
+            company=self.company,
+        )
 
-    def test_get_plans_public(self):
-        url = reverse('plans')
+    def test_get_plans_listing(self):
+        self.client.force_authenticate(user=self.admin)
+        url = reverse('admin-plans-list')
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        plans = response.data.get('plans', [])
-        plan_ids = [p['id'] for p in plans]
-        self.assertIn('free', plan_ids)
-        self.assertIn('pro', plan_ids)
-        self.assertIn('plus', plan_ids)
-        self.assertIn('top_tier', plan_ids)
-
-        pro = next(p for p in plans if p['id'] == 'pro')
-        self.assertEqual(pro['monthlyPrice'], 49)
-        self.assertEqual(pro['yearlyPrice'], 39)
-        self.assertEqual(pro['aiCredits'], 250)
-        self.assertEqual(pro['agents'], 10)
-
-        plus = next(p for p in plans if p['id'] == 'plus')
-        self.assertEqual(plus['monthlyPrice'], 99)
-        self.assertEqual(plus['yearlyPrice'], 79)
-        self.assertEqual(plus['aiCredits'], 500)
-        self.assertEqual(plus['agents'], 20)
-
-        top = next(p for p in plans if p['id'] == 'top_tier')
-        self.assertEqual(top['monthlyPrice'], 199)
-        self.assertEqual(top['yearlyPrice'], 159)
-        self.assertEqual(top['aiCredits'], 1000)
-        self.assertIsNone(top['agents'])
+        plan_slugs = [p['slug'] for p in response.data]
+        self.assertIn('free', plan_slugs)
+        self.assertIn('pro', plan_slugs)
+        self.assertIn('plus', plan_slugs)
+        self.assertIn('top_tier', plan_slugs)
 
 
 class PlanLimitsServiceTests(TestCase):

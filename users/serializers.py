@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from api.constants import AVAILABLE_COUNTRIES, COUNTRY_ALIASES, COUNTRY_NAME_BY_CODE
 from projects.models import Project, Unit
-from users.models import Company, Lead, Task, Team
+from users.models import Company, Lead, SupportTicket, Task, Team
 from users.utils import generate_password
 
 User = get_user_model()
@@ -219,7 +219,7 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
         fields = [
-            'id', 'name', 'phone', 'operating_countries', 'website', 'website_data',
+            'id', 'name', 'phone', 'operating_countries', 'website',
             'website_scrape_status', 'company_admin', 'created_at', 'updated_at'
         ]
 
@@ -1009,3 +1009,28 @@ class UserLeadDetailSerializer(serializers.ModelSerializer):
         if not user_id:
             return False
         return obj.assigned_to_id == user_id
+
+
+class SupportTicketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupportTicket
+        fields = ['id', 'name', 'email', 'subject', 'message', 'status', 'created_at']
+        read_only_fields = ['id', 'status', 'created_at']
+
+    def validate_name(self, value):
+        val = (value or '').strip()
+        if not val:
+            raise serializers.ValidationError("Name is required.")
+        return val
+
+    def validate_subject(self, value):
+        val = (value or '').strip()
+        if not val:
+            raise serializers.ValidationError("Subject is required.")
+        return val
+
+    def validate_message(self, value):
+        val = (value or '').strip()
+        if not val:
+            raise serializers.ValidationError("Message is required.")
+        return val

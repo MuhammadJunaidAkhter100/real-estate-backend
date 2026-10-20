@@ -49,8 +49,15 @@ from users.serializers import (
     UserLeadSerializer,
     UserManagementSerializer,
     VerifyOTPSerializer,
+    SupportTicketSerializer,
 )
-from users.tasks import import_leads_csv, import_users_csv, send_otp_email, send_superadmin_created_account_email
+from users.tasks import (
+    dispatch_support_emails,
+    import_leads_csv,
+    import_users_csv,
+    send_otp_email,
+    send_superadmin_created_account_email,
+)
 from users.utils import generate_password
 
 User = get_user_model()
@@ -533,6 +540,63 @@ class ForgotPasswordView(APIView):
 
         send_otp_email(user, otp)
         return Response({"message": "OTP sent to email."}, status=status.HTTP_200_OK)
+
+
+class SupportContactView(APIView):
+    """
+    POST /api/users/support/
+    POST /api/support/
+
+    Public API to submit a support message.
+    Sends notification to admin (itsinaam89@gmail.com) and confirmation receipt to user.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    @swagger_auto_schema(
+        operation_description=(
+            "Public Support Contact Form API.\n\n"
+            "- Submits a support enquiry from the website or platform.\n"
+            "- Sends an email notification to admin (`itsinaam89@gmail.com`).\n"
+            "- Sends a confirmation email to the user.\n"
+            "- Saves the support ticket in the database."
+        ),
+        request_body=SupportTicketSerializer,
+        responses={
+            201: openapi.Response(
+                description="Message submitted successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+                        'ticket_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    }
+                )
+            ),
+            400: "Validation error"
+        }
+    )
+    def post(self, request):
+        serializer = SupportTicketSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if getattr(request, 'user', None) and request.user.is_authenticated else None
+        ticket = serializer.save(user=user)
+
+        dispatch_support_emails(
+            name=ticket.name,
+            user_email=ticket.email,
+            subject=ticket.subject,
+            message=ticket.message,
+            ticket_id=ticket.id,
+        )
+
+        return Response({
+            'success': True,
+            'detail': 'Thank you! Your message has been sent successfully. Our team will get back to you shortly.',
+            'ticket_id': ticket.id,
+        }, status=status.HTTP_201_CREATED)
 
 
 class VerifyOTPView(APIView):

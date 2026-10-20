@@ -11,10 +11,9 @@ class CompanyNameTaken(Exception):
 
 
 class CheckoutRequestSerializer(serializers.Serializer):
-    plan = serializers.ChoiceField(
-        choices=['pro', 'plus', 'top_tier'],
+    plan = serializers.CharField(
         required=True,
-        help_text="Plan to subscribe to: 'pro', 'plus', or 'top_tier'",
+        help_text="Plan to subscribe to (e.g. 'pro', 'plus', 'top_tier', or any active plan slug)",
     )
     interval = serializers.ChoiceField(
         choices=['monthly', 'yearly', 'annual'],
@@ -200,4 +199,96 @@ def issue_tokens(user):
         'access': str(refresh.access_token),
         'user': UserDetailSerializer(user).data,
     }
+
+
+DEFAULT_PLAN_FEATURES = {
+    'lead_management': True,
+    'task_management': True,
+    'task_automation': False,
+    'commission_intelligence': True,
+    'team_management': True,
+    'ai_proposal_generation': False,
+    'ai_chatbot': True,
+    'whatsapp_integration': True,
+    'ai_calling_agent': True,
+    'call_transcript_ai_summary': False,
+}
+
+
+class SubscriptionPlanSerializer(serializers.ModelSerializer):
+    """Serializer for admin subscription plan CRUD and public presentation."""
+
+    users = serializers.IntegerField(source='users_limit', read_only=True)
+    monthly_price = serializers.DecimalField(max_digits=10, decimal_places=2, coerce_to_string=False, required=False)
+    yearly_price = serializers.DecimalField(max_digits=10, decimal_places=2, coerce_to_string=False, required=False)
+
+    class Meta:
+        from payment.models import SubscriptionPlan
+
+        model = SubscriptionPlan
+        fields = [
+            'id',
+            'name',
+            'slug',
+            'description',
+            'icon',
+            'badge',
+            'monthly_price',
+            'yearly_price',
+            'currency',
+            'ai_credits',
+            'is_credits_unlimited',
+            'agents',
+            'is_agents_unlimited',
+            'team_managers',
+            'is_team_managers_unlimited',
+            'users',
+            'features',
+            'custom_features',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'slug', 'users', 'created_at', 'updated_at']
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            data = data.copy()
+            if 'short_description' in data and 'description' not in data:
+                data['description'] = data['short_description']
+            if 'monthlyPrice' in data and 'monthly_price' not in data:
+                data['monthly_price'] = data['monthlyPrice']
+            if 'yearlyPrice' in data and 'yearly_price' not in data:
+                data['yearly_price'] = data['yearlyPrice']
+            if 'credits' in data and 'ai_credits' not in data:
+                data['ai_credits'] = data['credits']
+            if 'aiCredits' in data and 'ai_credits' not in data:
+                data['ai_credits'] = data['aiCredits']
+            if 'isCreditsUnlimited' in data and 'is_credits_unlimited' not in data:
+                data['is_credits_unlimited'] = data['isCreditsUnlimited']
+            if 'isAgentsUnlimited' in data and 'is_agents_unlimited' not in data:
+                data['is_agents_unlimited'] = data['isAgentsUnlimited']
+            if 'teamManagers' in data and 'team_managers' not in data:
+                data['team_managers'] = data['teamManagers']
+            if 'isTeamManagersUnlimited' in data and 'is_team_managers_unlimited' not in data:
+                data['is_team_managers_unlimited'] = data['isTeamManagersUnlimited']
+            if 'customFeatures' in data and 'custom_features' not in data:
+                data['custom_features'] = data['customFeatures']
+            if 'isActive' in data and 'is_active' not in data:
+                data['is_active'] = data['isActive']
+            elif 'status' in data and 'is_active' not in data:
+                val = str(data['status']).lower()
+                data['is_active'] = (val in ('active', 'true', '1'))
+
+            # Merge features with defaults if features dict provided
+            feat = data.get('features')
+            if isinstance(feat, dict):
+                merged = dict(DEFAULT_PLAN_FEATURES)
+                merged.update(feat)
+                data['features'] = merged
+            elif 'features' not in data and self.instance is None:
+                data['features'] = dict(DEFAULT_PLAN_FEATURES)
+
+        return super().to_internal_value(data)
+
 

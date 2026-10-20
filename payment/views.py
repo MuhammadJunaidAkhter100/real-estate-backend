@@ -1,79 +1,64 @@
+from datetime import timedelta
 import logging
 import stripe
 from django.conf import settings
+from django.core.paginator import EmptyPage, Paginator
 from django.db import IntegrityError, transaction
+from django.db.models import Q
+from django.utils import timezone
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework import permissions, status
+from rest_framework import permissions, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from payment import plan_limits, services, stripe_client, webhooks
 from payment.guards import payment_exempt
-from payment.models import ProcessedStripeEvent
+from payment.models import ProcessedStripeEvent, SubscriptionPlan
 from payment.serializers import (
     CheckoutRequestSerializer,
     CompanyNameTaken,
     EmailAlreadyRegistered,
     RegisterCompanySerializer,
+    SubscriptionPlanSerializer,
     VerifySessionSerializer,
     issue_tokens,
 )
-from users.models import Company
+from users.models import Company, User
 
 logger = logging.getLogger(__name__)
 
 SWAGGER_TAG = ['Payments & Subscriptions']
+ADMIN_SWAGGER_TAG = ['Admin Subscription Plans']
+
+
+class CanViewOrManageSubscriptionPlans(permissions.BasePermission):
+    """
+    - Read (GET): Allowed for Superadmin, Axiyon Admin, and Company Admin.
+    - Write (POST, PATCH, DELETE): Allowed only for Superadmin and Axiyon Admin.
+    """
+    message = "Only administrators can create, modify, or delete subscription plans."
+
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        if not (user and user.is_authenticated):
+            return False
+
+        is_admin = bool(
+            user.is_superuser
+            or user.is_staff
+            or getattr(user, 'role', '') in ['superadmin', 'axiyon_admin']
+        )
+
+        if request.method in permissions.SAFE_METHODS:
+            return is_admin or getattr(user, 'role', '') == 'company_admin'
+
+        return is_admin
 
 
 def _frontend_url(path=''):
     base = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000').rstrip('/')
     return f"{base}{path}"
-
-
-@payment_exempt
-class PlansListView(APIView):
-    """List available subscription plans, features, and pricing for monthly/yearly billing."""
-
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    @swagger_auto_schema(
-        tags=SWAGGER_TAG,
-        operation_summary="List Subscription Plans",
-        operation_description="Returns all available plans (Free, Pro, Plus, Top Tier) with features, monthly and yearly pricing.",
-    )
-    def get(self, request):
-        company_plan = None
-        user = getattr(request, 'user', None)
-        if user and user.is_authenticated and getattr(user, 'company', None):
-            company_plan = plan_limits.normalize_plan(user.company.plan)
-
-        plans_data = []
-        for plan_key in [
-            plan_limits.PLAN_FREE,
-            plan_limits.PLAN_PRO,
-            plan_limits.PLAN_PLUS,
-            plan_limits.PLAN_TOP_TIER,
-        ]:
-            info = plan_limits.PLAN_LIMITS[plan_key]
-            plans_data.append({
-                'id': plan_key,
-                'name': info.get('name'),
-                'badge': info.get('badge'),
-                'monthlyPrice': info.get('monthly_price'),
-                'yearlyPrice': info.get('yearly_price'),
-                'aiCredits': info.get('ai_credits'),
-                'agents': info.get('agents'),
-                'teamManagers': info.get('team_managers'),
-                'features': info.get('features', {}),
-                'isActivePlan': (company_plan == plan_key),
-            })
-
-        return Response({
-            'plans': plans_data,
-            'currentPlan': company_plan or 'free',
-        })
 
 
 @payment_exempt
@@ -387,4 +372,305 @@ class RegisterCompanyView(APIView):
             'checkoutUrl': checkout_url,
         }
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+@payment_exempt
+class AdminSubscriptionPlanViewSet(viewsets.ModelViewSet):
+    """Admin CRUD ViewSet for managing subscription plans.
+    
+    - List / Retrieve: Superadmin, Axiyon Admin, and Company Admin
+    - Create / Patch / Delete: Superadmin and Axiyon Admin only
+    """
+
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+    serializer_class = SubscriptionPlanSerializer
+    permission_classes = [CanViewOrManageSubscriptionPlans]
+
+    def get_queryset(self):
+        user = getattr(self.request, 'user', None)
+        is_admin = bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_superuser
+                or user.is_staff
+                or getattr(user, 'role', '') in ['superadmin', 'axiyon_admin']
+            )
+        )
+        qs = SubscriptionPlan.objects.all().order_by('order', 'id')
+        if not is_admin:
+            # Company admin only sees active plans
+            return qs.filter(is_active=True)
+        return qs
+
+    @swagger_auto_schema(
+        tags=ADMIN_SWAGGER_TAG,
+        operation_summary="List All Subscription Plans (Admin & Company Admin)",
+        operation_description="Returns subscription plans. Company admins see active plans; superadmins see all plans.",
+    )
+    def list(self, request, *args, **kwargs):
+        is_active = request.query_params.get('is_active')
+        qs = self.get_queryset()
+        if is_active is not None:
+            active_bool = is_active.lower() in ('true', '1', 'yes')
+            qs = qs.filter(is_active=active_bool)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        tags=ADMIN_SWAGGER_TAG,
+        operation_summary="Create Subscription Plan (Admin)",
+        operation_description="Creates a new subscription plan with pricing, limits, and software feature toggles.",
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        plan = serializer.save()
+        return Response(
+            self.get_serializer(plan).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @swagger_auto_schema(
+        tags=ADMIN_SWAGGER_TAG,
+        operation_summary="Get Subscription Plan Details (Admin)",
+    )
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        tags=ADMIN_SWAGGER_TAG,
+        operation_summary="Partial Update Subscription Plan (Admin)",
+    )
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        plan = serializer.save()
+        return Response(self.get_serializer(plan).data)
+
+    @swagger_auto_schema(
+        tags=ADMIN_SWAGGER_TAG,
+        operation_summary="Delete Subscription Plan (Admin)",
+        operation_description="Deletes a subscription plan. If companies are actively assigned to it, it is deactivated (soft-deleted) to prevent data corruption.",
+    )
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Check if any company is using this plan
+        is_in_use = Company.objects.filter(plan__iexact=instance.slug).exists()
+        if is_in_use:
+            instance.is_active = False
+            instance.save(update_fields=['is_active', 'updated_at'])
+            return Response(
+                {
+                    'detail': f"Plan '{instance.name}' is currently in use by companies. It has been deactivated instead of deleted.",
+                    'deactivated': True,
+                },
+                status=status.HTTP_200_OK,
+            )
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@payment_exempt
+class AdminSubscriptionsOverviewView(APIView):
+    """Admin dashboard endpoint for listing all organizations/subscriptions with live stats & filters."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Admin Subscriptions'],
+        operation_summary="Get Subscriptions Overview & Stats (Admin)",
+        operation_description=(
+            "Returns aggregated subscription statistics (Active, Expiring Soon, In Grace Period) "
+            "and a paginated list of all companies/organizations with their plan, billing cycle, "
+            "activation date, next expiry, and live status. Supports filtering by tier, status, cycle, and search."
+        ),
+        manual_parameters=[
+            openapi.Parameter('search', openapi.IN_QUERY, type=openapi.TYPE_STRING, description="Search by company name or admin email/name"),
+            openapi.Parameter('tier', openapi.IN_QUERY, type=openapi.TYPE_STRING, description="Filter by plan tier (e.g. 'all', 'free', 'pro', 'plus', 'top_tier')"),
+            openapi.Parameter('status', openapi.IN_QUERY, type=openapi.TYPE_STRING, description="Filter by status ('all', 'active', 'expiring_soon', 'in_grace_period', 'past_due', 'canceled')"),
+            openapi.Parameter('cycle', openapi.IN_QUERY, type=openapi.TYPE_STRING, description="Filter by billing cycle ('all', 'monthly', 'annual', 'yearly')"),
+            openapi.Parameter('page', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description="Page number (default 1)"),
+            openapi.Parameter('page_size', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description="Page size (default 10)"),
+        ],
+    )
+    def get(self, request):
+        user = request.user
+        is_admin = bool(
+            user.is_superuser
+            or user.is_staff
+            or getattr(user, 'role', '') in ['superadmin', 'axiyon_admin']
+        )
+        if not is_admin:
+            return Response(
+                {'detail': 'Only administrators can access subscriptions overview.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        now = timezone.now()
+        thirty_days_later = now + timedelta(days=30)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # ── Global Top Stats ──────────────────────────────────────────────────
+        active_companies = Company.objects.filter(status=Company.Status.ACTIVE)
+        active_count = active_companies.count()
+        new_this_month = active_companies.filter(created_at__gte=start_of_month).count()
+
+        expiring_soon_count = Company.objects.filter(
+            status=Company.Status.ACTIVE,
+            current_period_end__gte=now,
+            current_period_end__lte=thirty_days_later,
+        ).count()
+
+        in_grace_period_count = Company.objects.filter(
+            Q(status=Company.Status.PAST_DUE) | Q(grace_until__gt=now)
+        ).count()
+
+        stats_data = {
+            'active_subscriptions': active_count,
+            'active_this_month': new_this_month,
+            'active_this_month_badge': f"+{new_this_month} this month",
+            'expiring_soon': expiring_soon_count,
+            'expiring_soon_badge': "Requires renewal",
+            'in_grace_period': in_grace_period_count,
+            'in_grace_period_badge': "Action needed",
+        }
+
+        # ── Base Queryset ─────────────────────────────────────────────────────
+        qs = Company.objects.all().prefetch_related('users').order_by('-created_at', 'id')
+
+        # 1. Search filter
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(users__email__icontains=search)
+                | Q(users__first_name__icontains=search)
+                | Q(users__last_name__icontains=search)
+            ).distinct()
+
+        # 2. Tier / Plan filter
+        tier = request.query_params.get('tier') or request.query_params.get('plan')
+        if tier and tier.lower() != 'all':
+            qs = qs.filter(plan__iexact=tier.strip())
+
+        # 3. Cycle / Interval filter
+        cycle = request.query_params.get('cycle') or request.query_params.get('interval')
+        if cycle and cycle.lower() != 'all':
+            cycle_val = cycle.lower().strip()
+            if cycle_val in ('annual', 'yearly', 'year'):
+                qs = qs.filter(billing_interval__in=['yearly', 'annual'])
+            elif cycle_val == 'monthly':
+                qs = qs.filter(billing_interval='monthly')
+
+        # 4. Status filter
+        status_filter = request.query_params.get('status', '').lower().strip()
+        if status_filter and status_filter != 'all':
+            if status_filter == 'expiring_soon':
+                qs = qs.filter(
+                    status=Company.Status.ACTIVE,
+                    current_period_end__gte=now,
+                    current_period_end__lte=thirty_days_later,
+                )
+            elif status_filter == 'in_grace_period':
+                qs = qs.filter(
+                    Q(status=Company.Status.PAST_DUE) | Q(grace_until__gt=now)
+                )
+            elif status_filter == 'active':
+                qs = qs.filter(status=Company.Status.ACTIVE)
+            elif status_filter == 'past_due':
+                qs = qs.filter(status=Company.Status.PAST_DUE)
+            elif status_filter in ('canceled', 'cancelled'):
+                qs = qs.filter(status=Company.Status.CANCELED)
+            elif status_filter == 'suspended':
+                qs = qs.filter(status=Company.Status.SUSPENDED)
+
+        # ── Pagination ────────────────────────────────────────────────────────
+        page = request.query_params.get('page', 1)
+        page_size = request.query_params.get('page_size', 10)
+        try:
+            page = int(page)
+            if page < 1:
+                page = 1
+        except (TypeError, ValueError):
+            page = 1
+
+        try:
+            page_size = int(page_size)
+            if page_size < 1 or page_size > 100:
+                page_size = 10
+        except (TypeError, ValueError):
+            page_size = 10
+
+        paginator = Paginator(qs, page_size)
+        try:
+            paginated_page = paginator.page(page)
+        except EmptyPage:
+            paginated_page = []
+
+        # ── Serialization ─────────────────────────────────────────────────────
+        organizations = []
+        for company in paginated_page:
+            admin_user = (
+                company.users.filter(role=User.Role.COMPANY_ADMIN).first()
+                or company.users.first()
+            )
+
+            # Determine live status
+            if (company.grace_until and company.grace_until > now) or company.status == Company.Status.PAST_DUE:
+                computed_status = 'in_grace_period'
+            elif company.status == Company.Status.ACTIVE:
+                if company.current_period_end and now <= company.current_period_end <= thirty_days_later:
+                    computed_status = 'expiring_soon'
+                else:
+                    computed_status = 'active'
+            elif company.status == Company.Status.CANCELED:
+                computed_status = 'canceled'
+            elif company.status == Company.Status.SUSPENDED:
+                computed_status = 'suspended'
+            else:
+                computed_status = company.status
+
+            # Billing cycle
+            b_interval = (company.billing_interval or 'monthly').lower()
+            billing_cycle = 'annual' if b_interval in ('yearly', 'annual', 'year') else 'monthly'
+
+            act_date = company.created_at
+            exp_date = company.current_period_end
+            is_expiring_soon = bool(
+                exp_date and now <= exp_date <= thirty_days_later
+            )
+
+            org_data = {
+                'id': company.pk,
+                'company_id': company.pk,
+                'company_name': company.name,
+                'admin_email': admin_user.email if admin_user else '',
+                'admin_name': admin_user.full_name if admin_user else '',
+                'plan': company.plan,
+                'billing_cycle': billing_cycle,
+                'activated_at': act_date.isoformat() if act_date else None,
+                'next_expiry': exp_date.isoformat() if exp_date else None,
+                'is_expiring_soon': is_expiring_soon,
+                'status': computed_status,
+            }
+            organizations.append(org_data)
+
+        return Response({
+            'stats': stats_data,
+            'pagination': {
+                'total': paginator.count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': paginator.num_pages,
+                'has_next': paginated_page.has_next() if hasattr(paginated_page, 'has_next') else False,
+                'has_prev': paginated_page.has_previous() if hasattr(paginated_page, 'has_previous') else False,
+            },
+            'organizations': organizations,
+        })
+
+
 

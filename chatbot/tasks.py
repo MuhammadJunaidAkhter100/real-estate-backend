@@ -9,8 +9,8 @@ from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.utils import timezone
 from chatbot.pinecone_service import (CHUNK_OVERLAP, CHUNK_SIZE, PineconeService, PineconeServiceError)
-from chatbot.data_extraction import (DataExtractor,ExtractionError,UnsupportedFileType)
-from chatbot.models import KnowledgeBaseDocument
+from chatbot.data_extraction import (DataExtractor, ExtractionError, UnsupportedFileType)
+from chatbot.models import KnowledgeBaseDocument, PublicKnowledgeBaseDocument
 from chatbot.website_knowledge import (
     MAX_DOCUMENT_CHARS,
     WEBSITE_DOCUMENT_FILE,
@@ -58,6 +58,25 @@ def fail_stalled_documents(documents) -> int:
         error=STALLED_ERROR,
         updated_at=now,
     )
+
+
+def fail_stalled_public_documents(documents) -> int:
+    """Mark public KB documents whose worker is gone as failed."""
+    now = timezone.now()
+    stalled = documents.filter(
+        Q(status=PublicKnowledgeBaseDocument.Status.PROCESSING,
+          updated_at__lt=now - KB_PROCESSING_STALLED_AFTER)
+        | Q(status=PublicKnowledgeBaseDocument.Status.PENDING,
+            updated_at__lt=now - KB_PENDING_STALLED_AFTER)
+    )
+    if not stalled.exists():
+        return 0
+    return stalled.update(
+        status=PublicKnowledgeBaseDocument.Status.FAILED,
+        error=STALLED_ERROR,
+        updated_at=now,
+    )
+
 
 
 @shared_task(
@@ -273,3 +292,84 @@ def import_company_website_knowledge(self, company_id: int, website: str = "", r
         doc.save(update_fields=["status", "error", "updated_at"])
         logger.exception("Unexpected website import failure for company %s", company_id)
         return {"success": False, "document_id": doc.pk, "error": str(exc)}
+
+
+@shared_task(
+    bind=True,
+    name="chatbot.extract_public_knowledge_base_document",
+    soft_time_limit=KB_TASK_SOFT_TIME_LIMIT,
+    time_limit=KB_TASK_TIME_LIMIT,
+)
+def extract_public_knowledge_base_document(self, document_id: int):
+    """
+    Extract text from an uploaded public knowledge-base document and index it in Pinecone.
+    """
+    try:
+        doc = PublicKnowledgeBaseDocument.objects.get(pk=document_id)
+    except PublicKnowledgeBaseDocument.DoesNotExist:
+        logger.warning("extract_public_knowledge_base_document: doc %s not found", document_id)
+        return {"success": False, "error": "Document not found"}
+
+    doc.status = PublicKnowledgeBaseDocument.Status.PROCESSING
+    doc.error = ""
+    doc.task_id = self.request.id or ""
+    doc.save(update_fields=["status", "error", "task_id", "updated_at"])
+
+    try:
+        doc.file.open("rb")
+        try:
+            data = doc.file.read()
+        finally:
+            doc.file.close()
+
+        result = DataExtractor().extract(data, doc.original_filename)
+        logger.info(
+            "Extracted %d chars from public document %s (%s)",
+            result.char_count, document_id, result.file_type,
+        )
+
+        meta = {
+            "original_filename": doc.original_filename,
+            "file_type": result.file_type,
+        }
+
+        chunks_stored = PineconeService().upsert_public_document(
+            document_id=doc.pk,
+            text=result.text,
+            metadata=meta,
+        )
+
+        logger.info("Chunks stored for public document %s: %d", document_id, chunks_stored)
+
+        doc.file_type = result.file_type
+        doc.chunk_count = chunks_stored
+        doc.status = PublicKnowledgeBaseDocument.Status.COMPLETED
+        doc.save(update_fields=["file_type", "chunk_count", "status", "updated_at"])
+
+        return {
+            "success": True,
+            "document_id": doc.pk,
+            "char_count": result.char_count,
+            "file_type": result.file_type,
+            "chunks_stored": chunks_stored,
+        }
+
+    except (UnsupportedFileType, ExtractionError) as exc:
+        doc.status = PublicKnowledgeBaseDocument.Status.FAILED
+        doc.error = str(exc)
+        doc.save(update_fields=["status", "error", "updated_at"])
+        logger.warning("Public KB extraction failed for doc %s: %s", document_id, exc)
+        return {"success": False, "error": str(exc)}
+    except SoftTimeLimitExceeded:
+        doc.status = PublicKnowledgeBaseDocument.Status.FAILED
+        doc.error = TIMED_OUT_ERROR
+        doc.save(update_fields=["status", "error", "updated_at"])
+        logger.warning("Public KB extraction timed out for doc %s", document_id)
+        return {"success": False, "error": TIMED_OUT_ERROR}
+    except Exception as exc:  # noqa: BLE001
+        doc.status = PublicKnowledgeBaseDocument.Status.FAILED
+        doc.error = str(exc)
+        doc.save(update_fields=["status", "error", "updated_at"])
+        logger.exception("Unexpected Public KB extraction failure for doc %s", document_id)
+        return {"success": False, "error": str(exc)}
+

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from users.models import AgentCommission, Company, Lead, Task, User
+from users.models import AgentCommission, Company, Lead, SupportTicket, Task, User
 
 # Register your models here.
 
@@ -31,3 +31,12 @@ class AgentCommissionAdmin(admin.ModelAdmin):
     search_fields = ('agent__email', 'lead__name', 'project__title')
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(SupportTicket)
+class SupportTicketAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'email', 'subject', 'status', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('name', 'email', 'subject', 'message')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')

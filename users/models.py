@@ -74,7 +74,7 @@ class Company(models.Model):
     # 'manual' keeps companies created by the super-admin "Add New Company"
     # flow (and every other non-billing creation path) outside of billing.
     plan = models.CharField(
-        max_length=20,
+        max_length=100,
         choices=Plan.choices,
         default=Plan.MANUAL,
     )
@@ -90,6 +90,13 @@ class Company(models.Model):
     grace_until = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def get_plan_display(self):
+        try:
+            from payment.plan_limits import get_plan_name
+            return get_plan_name(self.plan)
+        except Exception:
+            return str(self.plan).capitalize()
 
     def __str__(self):
         return self.name
@@ -529,3 +536,32 @@ class AgentCommission(models.Model):
 
     def __str__(self):
         return f"Commission for {self.agent.email} - Lead #{self.lead_id} ({self.agent_commission})"
+
+
+class SupportTicket(models.Model):
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        IN_PROGRESS = 'in_progress', 'In Progress'
+        RESOLVED = 'resolved', 'Resolved'
+        CLOSED = 'closed', 'Closed'
+
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    subject = models.CharField(max_length=255)
+    message = models.TextField()
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='support_tickets',
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} - {self.subject} ({self.status})"

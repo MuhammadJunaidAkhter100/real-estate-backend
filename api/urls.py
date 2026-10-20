@@ -23,7 +23,15 @@ from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from django.conf.urls.static import static
 
-from users.views import ChangePasswordView, CustomTokenObtainPairView, ForgotPasswordView, MeView, ResetPasswordView, VerifyOTPView
+from users.views import (
+    ChangePasswordView,
+    CustomTokenObtainPairView,
+    ForgotPasswordView,
+    MeView,
+    ResetPasswordView,
+    SupportContactView,
+    VerifyOTPView,
+)
 from payment.views import RegisterCompanyView
 
 project_name = settings.APP_NAME  # Replace with your project name
@@ -54,7 +62,7 @@ urlpatterns = [
     path("api/auth/change_password/", ChangePasswordView.as_view(), name="change_password"),
 
     path('api/auth/me/', MeView.as_view(), name='me'),
-
+    path('api/support/', SupportContactView.as_view(), name='support-contact-root'),
 
     path('api/users/', include('users.urls')),
     path('api/projects/', include('projects.urls')),

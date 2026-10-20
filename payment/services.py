@@ -55,6 +55,25 @@ def current_count(company_id, kind, now=None):
 def limits_for(plan):
     """Return dictionary of limits for plan."""
     norm_plan = plan_limits.normalize_plan(plan)
+    try:
+        from payment.models import SubscriptionPlan
+        db_plan = SubscriptionPlan.objects.filter(slug=norm_plan).first()
+        if db_plan:
+            return {
+                'name': db_plan.name,
+                'monthly_price': float(db_plan.monthly_price),
+                'yearly_price': float(db_plan.yearly_price),
+                'users': db_plan.users_limit,
+                'agents': None if db_plan.is_agents_unlimited else db_plan.agents,
+                'team_managers': None if db_plan.is_team_managers_unlimited else db_plan.team_managers,
+                'ai_credits': None if db_plan.is_credits_unlimited else db_plan.ai_credits,
+                'ai_proposals': None,
+                'features': db_plan.features or {},
+                'custom_features': db_plan.custom_features or [],
+            }
+    except Exception:
+        pass
+
     return dict(plan_limits.PLAN_LIMITS.get(norm_plan, plan_limits.PLAN_LIMITS[plan_limits.PLAN_MANUAL]))
 
 

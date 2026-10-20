@@ -769,7 +769,7 @@ def send_proposal_to_lead(
         lead_id: ID of the lead (optional if proposal_id is given).
         phone_no: optional phone number typed directly by the user in chat (if empty, uses the lead's phone_no).
     """
-    print(f"\n📲 [TOOL] SEND PROPOSAL TO LEAD → proposal_id={proposal_id} | lead_id={lead_id} | phone={phone_no!r}")
+    print(f"\n[TOOL] SEND PROPOSAL TO LEAD -> proposal_id={proposal_id} | lead_id={lead_id} | phone={phone_no!r}")
     logger.info("Tool used: send_proposal_to_lead | proposal_id=%s | lead_id=%s", proposal_id, lead_id)
 
     if not _role_allowed(config):
@@ -1140,7 +1140,7 @@ def manage_tasks(
         due_date: due date string "YYYY-MM-DD".
         status: task status.
     """
-    print(f"\n📋 [TOOL] MANAGE TASKS → action={action} | name={name!r} | lead_id={lead_id}")
+    print(f"\n[TOOL] MANAGE TASKS -> action={action} | name={name!r} | lead_id={lead_id}")
     logger.info("Tool used: manage_tasks | action=%s", action)
 
     user = _get_user(config)
@@ -1310,7 +1310,7 @@ def create_lead(
         estimated_budget: lead budget as a number or string like "500000", "500k",
             "£1.2m" (required).
     """
-    print(f"\n👤 [TOOL] CREATE LEAD → name={name!r} | phone={phone_no!r} | budget={estimated_budget!r}")
+    print(f"\n[TOOL] CREATE LEAD -> name={name!r} | phone={phone_no!r} | budget={estimated_budget!r}")
     logger.info("Tool used: create_lead | name=%s", name)
 
     role = (config or {}).get("configurable", {}).get("user_role", "") or ""
@@ -1375,7 +1375,7 @@ def list_companies(config: RunnableConfig = None) -> str:
     Returns each company's id, name, operating countries and the number of users
     that belong to it.
     """
-    print("\n🏢 [TOOL] LIST COMPANIES")
+    print("\n[TOOL] LIST COMPANIES")
     logger.info("Tool used: list_companies")
 
     role = (config or {}).get("configurable", {}).get("user_role", "") or ""
@@ -1430,7 +1430,7 @@ def list_users(role_filter: str = None, config: RunnableConfig = None) -> str:
         role_filter: optional. If given, further restrict to users of that role
             (e.g. "agent", "team_manager", "company_admin", "superadmin").
     """
-    print(f"\n👥 [TOOL] LIST USERS → role_filter={role_filter!r}")
+    print(f"\n[TOOL] LIST USERS -> role_filter={role_filter!r}")
     logger.info("Tool used: list_users | role_filter=%s", role_filter)
 
     user = _get_user(config)

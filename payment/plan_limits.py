@@ -165,6 +165,23 @@ def normalize_interval(interval):
 def limit_for(plan, kind):
     """Return the cap for ``kind`` on ``plan``, or ``None`` when unlimited."""
     norm_plan = normalize_plan(plan)
+    try:
+        from payment.models import SubscriptionPlan
+        db_plan = SubscriptionPlan.objects.filter(slug=norm_plan).first()
+        if db_plan:
+            if kind == 'users':
+                return db_plan.users_limit
+            elif kind == 'agents':
+                return None if db_plan.is_agents_unlimited else db_plan.agents
+            elif kind == 'team_managers':
+                return None if db_plan.is_team_managers_unlimited else db_plan.team_managers
+            elif kind == 'ai_credits':
+                return None if db_plan.is_credits_unlimited else db_plan.ai_credits
+            elif kind == 'ai_proposals':
+                return None
+    except Exception:
+        pass
+
     config = PLAN_LIMITS.get(norm_plan, PLAN_LIMITS[PLAN_MANUAL])
     return config.get(kind)
 
@@ -186,33 +203,45 @@ def current_period_start(now=None):
 
 def get_plan_name(plan):
     norm = normalize_plan(plan)
+    try:
+        from payment.models import SubscriptionPlan
+        db_plan = SubscriptionPlan.objects.filter(slug=norm).first()
+        if db_plan:
+            return db_plan.name
+    except Exception:
+        pass
     return PLAN_LIMITS.get(norm, {}).get('name', str(plan).capitalize())
 
 
 def get_plan_amount_cents(plan, interval='monthly'):
-    """Calculate the recurring amount in cents for Stripe.
-    
-    Pro:
-      monthly: $49/mo -> 4900 cents
-      yearly: $39/mo ($468/yr) -> 46800 cents
-    Plus:
-      monthly: $99/mo -> 9900 cents
-      yearly: $79/mo ($948/yr) -> 94800 cents
-    Top Tier:
-      monthly: $199/mo -> 19900 cents
-      yearly: $159/mo ($1908/yr) -> 190800 cents
-    """
+    """Calculate the recurring amount in cents for Stripe."""
     norm_plan = normalize_plan(plan)
     norm_interval = normalize_interval(interval)
+
+    # 1. Try dynamic DB plan
+    try:
+        from payment.models import SubscriptionPlan
+        db_plan = SubscriptionPlan.objects.filter(slug=norm_plan).first()
+        if db_plan:
+            if norm_interval == 'yearly':
+                yearly_rate = float(db_plan.yearly_price)
+                return int(yearly_rate * 12 * 100)
+            else:
+                monthly_rate = float(db_plan.monthly_price)
+                return int(monthly_rate * 100)
+    except Exception:
+        pass
+
+    # 2. Fallback to hardcoded configuration
     config = PLAN_LIMITS.get(norm_plan)
     if not config:
         raise ValueError(f"Unknown plan: {plan}")
 
     if norm_interval == 'yearly':
         yearly_rate = config.get('yearly_price', 0)
-        # Billed annually (12 months)
         return int(yearly_rate * 12 * 100)
     else:
         monthly_rate = config.get('monthly_price', 0)
         return int(monthly_rate * 100)
+
 

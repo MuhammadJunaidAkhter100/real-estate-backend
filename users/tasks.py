@@ -11,6 +11,7 @@ from django.conf import settings
 
 from celery import shared_task
 from django.db import transaction
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -1040,3 +1041,117 @@ def check_and_update_task_expirations():
         "warning_1h_count": warning_1h_count,
         "warning_count": warning_1h_count + warning_24h_count,
     }
+
+
+@shared_task
+def send_support_ticket_emails(name: str, user_email: str, subject: str, message: str, ticket_id: int | None = None):
+    """
+    Sends two emails for a new support enquiry:
+    1. Notification to the admin/team (itsinaam89@gmail.com + configured ADMIN_NOTIFICATION_EMAILS)
+    2. Confirmation receipt to the user who submitted the request.
+    """
+    brand = _brand_context()
+    from_email = _from_email()
+
+    # 1. Admin Email (sent strictly to itsinaam89@gmail.com)
+    primary_admin = getattr(settings, "SUPPORT_ADMIN_EMAIL", "itsinaam89@gmail.com")
+    admin_recipients = [primary_admin]
+
+    admin_subject = f"New Support Request: {subject} – from {name}"
+    admin_context = {
+        **brand,
+        "name": name,
+        "email": user_email,
+        "subject": subject,
+        "message": message,
+        "ticket_id": ticket_id,
+        "created_at": timezone.now().strftime("%d %b %Y, %I:%M %p UTC"),
+    }
+
+    try:
+        admin_html = render_to_string("emails/support_admin_notification.html", admin_context)
+    except Exception:
+        logger.exception("Failed to render support_admin_notification.html")
+        admin_html = None
+
+    admin_plain = (
+        f"New Support Enquiry\n"
+        f"-------------------\n"
+        f"Name: {name}\n"
+        f"Email: {user_email}\n"
+        f"Subject: {subject}\n"
+        f"Message:\n{message}\n\n"
+        f"{_signature()}"
+    )
+
+    admin_msg = EmailMultiAlternatives(
+        subject=f"{admin_subject} – {brand['brand_name']}",
+        body=admin_plain,
+        from_email=from_email,
+        to=admin_recipients,
+    )
+    if admin_html:
+        admin_msg.attach_alternative(admin_html, "text/html")
+
+    try:
+        admin_msg.send(fail_silently=False)
+        logger.info("Support admin notification email sent to %s", admin_recipients)
+    except Exception:
+        logger.exception("Failed to send support admin notification email")
+
+    # 2. User Confirmation Email
+    user_subject = f"We've received your message: {subject} – {brand['brand_name']}"
+    user_context = {
+        **brand,
+        "name": name,
+        "email": user_email,
+        "subject": subject,
+        "message": message,
+        "ticket_id": ticket_id,
+    }
+
+    try:
+        user_html = render_to_string("emails/support_user_confirmation.html", user_context)
+    except Exception:
+        logger.exception("Failed to render support_user_confirmation.html")
+        user_html = None
+
+    user_plain = (
+        f"Hi {name},\n\n"
+        f"Thank you for contacting {brand['brand_name']} support. We have received your inquiry regarding \"{subject}\".\n"
+        f"Our team is reviewing your message and will get back to you as soon as possible.\n\n"
+        f"Your message details:\n"
+        f"-------------------\n"
+        f"Subject: {subject}\n"
+        f"Message:\n{message}\n\n"
+        f"{_signature()}"
+    )
+
+    user_msg = EmailMultiAlternatives(
+        subject=user_subject,
+        body=user_plain,
+        from_email=from_email,
+        to=[user_email],
+    )
+    if user_html:
+        user_msg.attach_alternative(user_html, "text/html")
+
+    try:
+        user_msg.send(fail_silently=False)
+        logger.info("Support confirmation email sent to %s", user_email)
+    except Exception:
+        logger.exception("Failed to send support user confirmation email")
+
+
+def dispatch_support_emails(name: str, user_email: str, subject: str, message: str, ticket_id: int | None = None):
+    """Dispatch support emails via Celery if available, or background thread fallback."""
+    try:
+        send_support_ticket_emails.delay(name, user_email, subject, message, ticket_id)
+    except Exception:
+        import threading
+        logger.warning("Celery dispatch failed; executing in background thread fallback.")
+        threading.Thread(
+            target=send_support_ticket_emails,
+            args=(name, user_email, subject, message, ticket_id),
+            daemon=True,
+        ).start()

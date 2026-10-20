@@ -315,6 +315,7 @@ EMAIL_SITE_URL = config(
     default=FRONTEND_LOGIN_URL.rstrip("/").removesuffix("/login") or FRONTEND_URL,
 )
 EMAIL_LOGO_URL = config("EMAIL_LOGO_URL", default=f"{EMAIL_SITE_URL.rstrip('/')}/logo.png")
+SUPPORT_ADMIN_EMAIL = config("SUPPORT_ADMIN_EMAIL", default="itsinaam89@gmail.com")
 
 
 # ── Stripe ───────────────────────────────────────────────────────────────────
