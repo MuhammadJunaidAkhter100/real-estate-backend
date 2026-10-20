@@ -18,6 +18,7 @@ from chatbot.website_knowledge import (
     crawl_website,
     normalize_website_url,
     prepare_website_document,
+    save_website_document_versions,
 )
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,7 @@ def import_company_website_knowledge(self, company_id: int, website: str = "", r
     """
     Read a company's website and file its text in the knowledge base.
 
-    The text is stored as one document ("Website Data.txt") and indexed for
+    The text is stored as one document ("Website Data.docx") and indexed for
     search. Running it again replaces the previous import, so a company only
     ever has one website document. Not charged: it is part of onboarding.
     """
@@ -229,9 +230,7 @@ def import_company_website_knowledge(self, company_id: int, website: str = "", r
         content = crawl_website(website)
         text = content.as_text()
 
-        if doc.file:
-            doc.file.delete(save=False)
-        doc.file.save(WEBSITE_DOCUMENT_FILE, ContentFile(text.encode("utf-8")), save=False)
+        save_website_document_versions(doc, content, text)
         try:
             doc.hosted_url = doc.file.url
         except Exception:  # noqa: BLE001

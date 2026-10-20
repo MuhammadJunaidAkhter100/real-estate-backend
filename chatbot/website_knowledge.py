@@ -1,8 +1,8 @@
 """Turn a company's public website into one knowledge-base document.
 
 A company gives us its website at signup. We read a handful of its pages, keep
-the readable text and file it in the knowledge base as a single text document
-("Website Data.txt"), so the chatbot and the calling agent can answer from it.
+the readable text and file it in the knowledge base as a single Word document
+("Website Data.docx"), so the chatbot and the calling agent can answer from it.
 """
 
 from __future__ import annotations
@@ -13,19 +13,22 @@ import logging
 import socket
 import time
 from dataclasses import dataclass, field
+from io import BytesIO
 from urllib.parse import urldefrag, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, NavigableString
+from django.core.files.base import ContentFile
 from django.utils import timezone
+from docx import Document
 
 from chatbot.models import KnowledgeBaseDocument
 
 logger = logging.getLogger(__name__)
 
 # How the document appears in the knowledge base, and the file it is stored as.
-WEBSITE_DOCUMENT_NAME = 'Website Data.txt'
-WEBSITE_DOCUMENT_FILE = 'website_data.txt'
+WEBSITE_DOCUMENT_NAME = 'Website Data.docx'
+WEBSITE_DOCUMENT_FILE = 'website_data.docx'
 
 # Crawl limits. Scaled up to cover full company sites and all projects.
 MAX_PAGES = 100
@@ -107,6 +110,38 @@ class WebsiteContent:
             parts.append('')
             parts.extend(page.lines)
         return '\n'.join(parts)[:MAX_DOCUMENT_CHARS]
+
+
+def website_document_docx_bytes(content: WebsiteContent) -> bytes:
+    """Return the same scraped website content as a DOCX file."""
+    doc = Document()
+    doc.add_heading('Website Data', level=1)
+    doc.add_paragraph(f'Website: {content.website}')
+
+    for page in content.pages:
+        doc.add_heading(page.title or page.url or 'Website Page', level=2)
+        if page.description:
+            doc.add_paragraph(page.description)
+        if page.url:
+            doc.add_paragraph(f'URL: {page.url}')
+        for line in page.lines:
+            if line.strip():
+                doc.add_paragraph(line)
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def save_website_document_versions(doc: KnowledgeBaseDocument, content: WebsiteContent, text: str) -> None:
+    """Persist the scraped site as a DOCX document only."""
+    if doc.file:
+        doc.file.delete(save=False)
+
+    doc.file.save(WEBSITE_DOCUMENT_FILE, ContentFile(website_document_docx_bytes(content)), save=False)
+    doc.original_filename = WEBSITE_DOCUMENT_NAME
+    doc.file_type = 'docx'
+    doc.save(update_fields=['original_filename', 'file_type', 'updated_at'])
 
 
 # ── URLs ────────────────────────────────────────────────────────────────────
@@ -374,7 +409,7 @@ def prepare_website_document(company, website: str, owner=None) -> KnowledgeBase
             user=owner,
             source=KnowledgeBaseDocument.Source.WEBSITE,
             original_filename=WEBSITE_DOCUMENT_NAME,
-            file_type='txt',
+            file_type='docx',
         )
     doc.source_url = website
     doc.status = KnowledgeBaseDocument.Status.PENDING

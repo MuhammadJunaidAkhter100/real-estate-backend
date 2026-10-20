@@ -347,7 +347,7 @@ def scrape_company_website_task(self, company_id: int, website: str):
 
     _update_progress(5, 'Connecting to website and validating address...')
 
-    # The same website also feeds the knowledge base ("Website Data.txt").
+    # The same website also feeds the knowledge base ("Website Data.docx").
     # Queued as its own task so a problem there never stops the project import.
     try:
         from chatbot.tasks import import_company_website_knowledge

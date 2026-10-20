@@ -34,6 +34,12 @@ class PaymentPlansTests(TestCase):
         self.assertIn('plus', plan_slugs)
         self.assertIn('top_tier', plan_slugs)
 
+    def test_get_plans_listing_is_public_without_auth(self):
+        url = reverse('admin-plans-list')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(isinstance(response.data, list))
+
 
 class PlanLimitsServiceTests(TestCase):
     def setUp(self):
@@ -212,4 +218,33 @@ class RegisterCompanyTests(TestCase):
         self.assertIn("Welcome to", welcome_mail.subject)
         self.assertIn("Your Workspace is Ready", welcome_mail.subject)
         self.assertTrue(any(mime == 'text/html' for _, mime in welcome_mail.alternatives))
+
+
+class WebsiteScrapeWordExportTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @patch('chatbot.website_knowledge.crawl_website')
+    @patch('chatbot.website_knowledge.normalize_website_url', return_value='https://example.com')
+    def test_scrape_website_word_endpoint(self, mock_normalize, mock_crawl_website):
+        from chatbot.website_knowledge import WebsiteContent, WebsitePage
+
+        mock_crawl_website.return_value = WebsiteContent(
+            website='https://example.com',
+            pages=[
+                WebsitePage(
+                    url='https://example.com',
+                    title='Example Company',
+                    description='Example description',
+                    lines=['About us', 'We build homes in Dubai.'],
+                )
+            ],
+        )
+
+        response = self.client.post('/api/auth/scrape-website-docx/', {'website': 'https://example.com'}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+        self.assertIn('attachment; filename="website_data.docx"', response['Content-Disposition'])
+        self.assertGreater(len(response.content), 0)
 

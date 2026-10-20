@@ -1,11 +1,15 @@
 from datetime import timedelta
 import logging
+from io import BytesIO
+
 import stripe
 from django.conf import settings
 from django.core.paginator import EmptyPage, Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.http import HttpResponse
 from django.utils import timezone
+from docx import Document
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import permissions, status, viewsets
@@ -34,12 +38,15 @@ ADMIN_SWAGGER_TAG = ['Admin Subscription Plans']
 
 class CanViewOrManageSubscriptionPlans(permissions.BasePermission):
     """
-    - Read (GET): Allowed for Superadmin, Axiyon Admin, and Company Admin.
+    - Read (GET): Public, so plans can be shown on the public signup pages.
     - Write (POST, PATCH, DELETE): Allowed only for Superadmin and Axiyon Admin.
     """
     message = "Only administrators can create, modify, or delete subscription plans."
 
     def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
         user = getattr(request, 'user', None)
         if not (user and user.is_authenticated):
             return False
@@ -49,10 +56,6 @@ class CanViewOrManageSubscriptionPlans(permissions.BasePermission):
             or user.is_staff
             or getattr(user, 'role', '') in ['superadmin', 'axiyon_admin']
         )
-
-        if request.method in permissions.SAFE_METHODS:
-            return is_admin or getattr(user, 'role', '') == 'company_admin'
-
         return is_admin
 
 
@@ -372,6 +375,78 @@ class RegisterCompanyView(APIView):
             'checkoutUrl': checkout_url,
         }
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+@payment_exempt
+class WebsiteScrapeDocxView(APIView):
+    """Public endpoint that scrapes a website and returns the text as a .docx file."""
+
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    @staticmethod
+    def _build_docx_bytes(website: str) -> bytes:
+        from chatbot.website_knowledge import crawl_website, normalize_website_url
+
+        normalized = normalize_website_url(website)
+        if not normalized:
+            raise ValueError('A valid website URL is required.')
+
+        content = crawl_website(normalized)
+        doc = Document()
+        doc.add_heading('Website Data', level=1)
+        doc.add_paragraph(f'Website: {content.website}')
+
+        for page in content.pages:
+            doc.add_heading(page.title or page.url or 'Website Page', level=2)
+            if page.description:
+                doc.add_paragraph(page.description)
+            if page.url:
+                doc.add_paragraph(f'URL: {page.url}')
+            for line in page.lines:
+                if line.strip():
+                    doc.add_paragraph(line)
+
+        buffer = BytesIO()
+        doc.save(buffer)
+        return buffer.getvalue()
+
+    @swagger_auto_schema(
+        tags=['Authentication'],
+        operation_summary='Scrape Website and Export DOCX',
+        operation_description=(
+            'Public endpoint that fetches the website content using the same scraper flow as company onboarding, '
+            'and returns the results as a Microsoft Word document (.docx).'
+        ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'website': openapi.Schema(type=openapi.TYPE_STRING, description='Website URL to scrape'),
+            },
+            required=['website'],
+        ),
+        responses={
+            200: 'Word document file response',
+            400: 'Invalid website URL',
+            500: 'Scraping failed',
+        },
+    )
+    def post(self, request):
+        website = (request.data.get('website') or request.query_params.get('website') or '').strip()
+        if not website:
+            return Response({'detail': 'Website URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            docx_bytes = self._build_docx_bytes(website)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception('Website DOCX export failed for %s: %s', website, exc)
+            return Response({'detail': 'Could not scrape the website and generate a Word document.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = HttpResponse(docx_bytes, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+        response['Content-Disposition'] = 'attachment; filename="website_data.docx"'
+        return response
 
 
 @payment_exempt

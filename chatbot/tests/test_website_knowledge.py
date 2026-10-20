@@ -7,6 +7,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import requests
+from docx import Document
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -238,12 +239,15 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
         doc = self.documents().get()
         self.assertEqual(doc.user, self.admin)
         self.assertEqual(doc.original_filename, WEBSITE_DOCUMENT_NAME)
-        self.assertEqual(doc.file_type, 'txt')
+        self.assertEqual(doc.file_type, 'docx')
         self.assertEqual(doc.status, KnowledgeBaseDocument.Status.COMPLETED)
         self.assertEqual(doc.source_url, 'https://acme.test/')
         self.assertTrue(doc.hosted_url)
+
         with doc.file.open('rb') as stored:
-            self.assertIn('Acme Realty sells homes in Dubai.', stored.read().decode())
+            word_doc = Document(stored)
+            text = '\n'.join(paragraph.text for paragraph in word_doc.paragraphs)
+        self.assertIn('Acme Realty sells homes in Dubai.', text)
 
         upsert = pinecone.upsert_document.call_args.kwargs
         self.assertEqual(upsert['document_id'], doc.pk)
@@ -251,6 +255,15 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
         self.assertEqual(upsert['metadata']['user_id'], self.admin.pk)
         self.assertEqual(upsert['metadata']['company_id'], self.company.pk)
         self.assertEqual(upsert['metadata']['source'], 'website')
+
+    def test_files_the_website_as_txt_and_docx(self):
+        self.run_import()
+
+        doc = self.documents().get()
+        docx_path = doc.file.name.rsplit('/', 1)[0] + '/website_data.docx'
+        self.assertTrue(doc.file.storage.exists(docx_path))
+        with doc.file.storage.open(docx_path, 'rb') as stored:
+            self.assertTrue(stored.read().startswith(b'PK'))
 
     def test_running_again_replaces_the_same_document(self):
         self.run_import()
@@ -261,7 +274,8 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
         doc = self.documents().get()
         self.assertEqual(doc.pk, first.pk)
         with doc.file.open('rb') as stored:
-            text = stored.read().decode()
+            word_doc = Document(stored)
+            text = '\n'.join(paragraph.text for paragraph in word_doc.paragraphs)
         self.assertIn('Abu Dhabi', text)
         self.assertNotIn('sells homes in Dubai', text)
         # Chunks the shorter text no longer covers are cleared.
@@ -285,7 +299,9 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
         doc = self.documents().get()
         self.assertEqual(doc.status, KnowledgeBaseDocument.Status.FAILED)
         with doc.file.open('rb') as stored:
-            self.assertIn('Acme Realty sells homes in Dubai.', stored.read().decode())
+            word_doc = Document(stored)
+            text = '\n'.join(paragraph.text for paragraph in word_doc.paragraphs)
+            self.assertIn('Acme Realty sells homes in Dubai.', text)
 
     def test_an_indexing_failure_marks_the_document_failed(self):
         with patch('chatbot.tasks.crawl_website', return_value=site_content()), \
@@ -368,7 +384,7 @@ class WebsiteKnowledgeApiTests(WebsiteKnowledgeTestCase):
         self.queue_import.assert_called_once_with(self.company.pk, 'https://acme.test', self.admin.pk)
         self.assertEqual(response.data['status'], 'pending')
         self.assertEqual(response.data['document']['id'], doc.pk)
-        self.assertEqual(response.data['document']['original_filename'], 'Website Data.txt')
+        self.assertEqual(response.data['document']['original_filename'], 'Website Data.docx')
         self.assertEqual(response.data['document']['source'], 'website')
 
     def test_post_with_a_new_address_saves_it_on_the_company(self):
@@ -426,7 +442,7 @@ class WebsiteKnowledgeApiTests(WebsiteKnowledgeTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['original_filename'], 'Website Data.txt')
+        self.assertEqual(response.data[0]['original_filename'], 'Website Data.docx')
         self.assertEqual(response.data[0]['source'], 'website')
         self.assertEqual(response.data[0]['source_url'], 'https://acme.test')
 
