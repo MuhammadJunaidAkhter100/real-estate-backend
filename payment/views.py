@@ -436,6 +436,32 @@ class WebsiteScrapeDocxView(APIView):
         if not website:
             return Response({'detail': 'Website URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        company = None
+        company_id = request.data.get('company_id') or request.query_params.get('company_id')
+        if company_id:
+            try:
+                company = Company.objects.filter(pk=int(company_id)).first()
+            except (TypeError, ValueError):
+                company = None
+
+        if company is None and getattr(request.user, 'is_authenticated', False):
+            company = getattr(request.user, 'company', None)
+
+        if company is not None:
+            company.website = website
+            company.website_scrape_status = 'processing'
+            company.website_data = {
+                'status': 'processing',
+                'progress': 5,
+                'stage': 'Scraping initiated...',
+                'total_projects': 0,
+                'projects_created_or_updated': 0,
+            }
+            company.save(update_fields=['website', 'website_scrape_status', 'website_data'])
+
+            from users.tasks import scrape_company_website_task
+            scrape_company_website_task.delay(company.pk, company.website)
+
         try:
             docx_bytes = self._build_docx_bytes(website)
         except ValueError as exc:
