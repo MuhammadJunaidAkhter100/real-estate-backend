@@ -22,6 +22,7 @@ from payment.serializers import (
     CheckoutRequestSerializer,
     CompanyNameTaken,
     EmailAlreadyRegistered,
+    PlanChangeRequestSerializer,
     RegisterCompanySerializer,
     ReferralInvitationSerializer,
     SubscriptionPlanSerializer,
@@ -145,6 +146,174 @@ class CheckoutSessionView(APIView):
         return Response({
             'checkoutUrl': session.url,
             'sessionId': session.id,
+        })
+
+
+@payment_exempt
+class ChangePlanView(APIView):
+    """Upgrade or downgrade the authenticated company billing plan."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=SWAGGER_TAG,
+        operation_summary='Change Subscription Plan',
+        operation_description=(
+            'Change the authenticated company subscription. Paid plan changes apply through Stripe '
+            'with proration; downgrading to Free schedules cancellation at the current period end. '
+            'Companies without an active Stripe subscription receive a checkout URL.'
+        ),
+        request_body=PlanChangeRequestSerializer,
+        responses={200: 'Plan updated or cancellation scheduled', 400: 'Invalid plan', 403: 'Company admin required'},
+    )
+    def post(self, request):
+        if request.user.role != User.Role.COMPANY_ADMIN or not request.user.company_id:
+            return Response(
+                {'detail': 'Only a company admin can change the company plan.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        company = request.user.company
+        serializer = PlanChangeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested_plan = plan_limits.normalize_plan(serializer.validated_data['plan'])
+        interval = plan_limits.normalize_interval(
+            serializer.validated_data.get('interval') or company.billing_interval or 'monthly'
+        )
+
+        if requested_plan == plan_limits.PLAN_MANUAL:
+            return Response(
+                {'detail': 'The manual plan cannot be selected through billing.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_known_plan = requested_plan in plan_limits.PLAN_LIMITS or SubscriptionPlan.objects.filter(
+            slug=requested_plan,
+            is_active=True,
+        ).exists()
+        if not is_known_plan:
+            return Response({'plan': ['Select a valid active plan.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        current_plan = plan_limits.normalize_plan(company.plan)
+        current_interval = plan_limits.normalize_interval(company.billing_interval or 'monthly')
+        if requested_plan == current_plan and interval == current_interval:
+            return Response({
+                'plan': current_plan,
+                'interval': current_interval,
+                'detail': 'This company is already on the requested plan.',
+            })
+
+        if requested_plan == plan_limits.PLAN_FREE:
+            if company.stripe_subscription_id:
+                try:
+                    stripe_client.cancel_subscription(company.stripe_subscription_id)
+                except Exception:
+                    logger.exception('Failed to schedule Free plan downgrade for company %s', company.pk)
+                    return Response(
+                        {'detail': 'Could not schedule the plan downgrade.'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+                return Response({
+                    'plan': current_plan,
+                    'downgrade_to': plan_limits.PLAN_FREE,
+                    'effective': 'current_period_end',
+                    'detail': 'Downgrade to Free is scheduled for the end of the current billing period.',
+                })
+
+            company.plan = plan_limits.PLAN_FREE
+            company.billing_interval = interval
+            company.save(update_fields=['plan', 'billing_interval', 'updated_at'])
+            services.invalidate(company.pk)
+            return Response({'plan': company.plan, 'interval': company.billing_interval})
+
+        if not SubscriptionPlan.objects.filter(slug=requested_plan, is_active=True).exists() and requested_plan not in (
+            plan_limits.PLAN_PRO,
+            plan_limits.PLAN_PLUS,
+            plan_limits.PLAN_TOP_TIER,
+        ):
+            return Response({'plan': ['Select an active paid plan.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            if not company.stripe_subscription_id:
+                customer_id = company.stripe_customer_id
+                if not customer_id:
+                    customer = stripe_client.create_customer(
+                        email=request.user.email,
+                        name=company.name,
+                        metadata={'company_id': str(company.pk)},
+                    )
+                    customer_id = customer.id
+                    company.stripe_customer_id = customer_id
+                    company.save(update_fields=['stripe_customer_id', 'updated_at'])
+                    services.invalidate(company.pk)
+
+                session = stripe_client.create_checkout_session(
+                    customer_id=customer_id,
+                    plan=requested_plan,
+                    interval=interval,
+                    client_reference_id=company.pk,
+                    success_url=_frontend_url('/subscription?success=true&session_id={CHECKOUT_SESSION_ID}'),
+                    cancel_url=_frontend_url('/subscription?canceled=true'),
+                    metadata={'company_id': str(company.pk), 'plan': requested_plan, 'interval': interval},
+                )
+                session_data = session if isinstance(session, dict) else session.to_dict()
+                return Response({
+                    'checkoutUrl': session_data.get('url'),
+                    'plan': requested_plan,
+                    'interval': interval,
+                    'checkoutRequired': True,
+                })
+
+            subscription = stripe_client.retrieve_subscription(company.stripe_subscription_id)
+            subscription_data = (
+                subscription.to_dict_recursive()
+                if hasattr(subscription, 'to_dict_recursive')
+                else subscription if isinstance(subscription, dict) else subscription.to_dict()
+            )
+            customer_id = subscription_data.get('customer')
+            if isinstance(customer_id, dict):
+                customer_id = customer_id.get('id')
+            if company.stripe_customer_id and customer_id != company.stripe_customer_id:
+                return Response(
+                    {'detail': 'The Stripe subscription does not belong to this company.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            items = (subscription_data.get('items') or {}).get('data') or []
+            if not items or not items[0].get('id'):
+                return Response(
+                    {'detail': 'The Stripe subscription has no billable plan item.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            price_id = stripe_client.price_id_for_plan_change(requested_plan, interval)
+            updated_subscription = stripe_client.update_subscription_plan(
+                company.stripe_subscription_id,
+                items[0]['id'],
+                price_id,
+                plan=requested_plan,
+                interval=interval,
+                company_id=company.pk,
+            )
+            updated_data = (
+                updated_subscription.to_dict_recursive()
+                if hasattr(updated_subscription, 'to_dict_recursive')
+                else updated_subscription if isinstance(updated_subscription, dict)
+                else updated_subscription.to_dict()
+            )
+            services.sync_subscription(company, updated_data)
+        except Exception as exc:
+            logger.exception('Failed to change plan for company %s', company.pk)
+            return Response(
+                {'detail': 'Could not change the plan. Check the billing account and try again.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response({
+            'plan': plan_limits.normalize_plan(company.plan),
+            'interval': company.billing_interval,
+            'subscriptionId': company.stripe_subscription_id,
+            'detail': 'Subscription plan updated.',
         })
 
 
@@ -398,9 +567,16 @@ class ReferralInvitationViewSet(
     permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
 
     def get_queryset(self):
-        user = self.request.user
+        if getattr(self, 'swagger_fake_view', False):
+            return ReferralInvitation.objects.none()
+
+        user = getattr(self.request, 'user', None)
+        company_id = getattr(user, 'company_id', None)
+        if not company_id:
+            return ReferralInvitation.objects.none()
+
         return ReferralInvitation.objects.filter(
-            inviter_company_id=user.company_id
+            inviter_company_id=company_id
         ).select_related('inviter_user', 'joined_company')
 
     def list(self, request, *args, **kwargs):

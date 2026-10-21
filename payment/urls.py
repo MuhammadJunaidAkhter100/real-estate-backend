@@ -7,6 +7,7 @@ from payment.views import (
     BillingPortalView,
     BillingStatusView,
     CheckoutSessionView,
+    ChangePlanView,
     ReferralInvitationViewSet,
     StripeWebhookView,
     VerifyCheckoutSessionView,
@@ -19,6 +20,7 @@ router.register('referrals', ReferralInvitationViewSet, basename='referrals')
 urlpatterns = [
     path('admin/subscriptions/', AdminSubscriptionsOverviewView.as_view(), name='admin-subscriptions-overview'),
     path('checkout/', CheckoutSessionView.as_view(), name='checkout'),
+    path('change-plan/', ChangePlanView.as_view(), name='change-plan'),
     path('portal/', BillingPortalView.as_view(), name='portal'),
     path('status/', BillingStatusView.as_view(), name='status'),
     path('verify/', VerifyCheckoutSessionView.as_view(), name='verify'),

@@ -41,6 +41,104 @@ class PaymentPlansTests(TestCase):
         self.assertTrue(isinstance(response.data, list))
 
 
+class ChangePlanTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.company = Company.objects.create(
+            name='Plan Change Co',
+            plan='pro',
+            billing_interval='monthly',
+            stripe_customer_id='cus_plan_change',
+            stripe_subscription_id='sub_plan_change',
+        )
+        self.admin = User.objects.create_user(
+            email='plan-change@example.com',
+            first_name='Plan',
+            last_name='Admin',
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+            company=self.company,
+        )
+        self.client.force_authenticate(user=self.admin)
+
+    @patch('payment.stripe_client.update_subscription_plan')
+    @patch('payment.stripe_client.price_id_for_plan_change', return_value='price_plus_yearly')
+    @patch('payment.stripe_client.retrieve_subscription')
+    def test_paid_plan_change_updates_stripe_subscription(
+        self, mock_retrieve, _mock_price, mock_update
+    ):
+        mock_retrieve.return_value = {
+            'id': 'sub_plan_change',
+            'customer': 'cus_plan_change',
+            'items': {'data': [{'id': 'si_plan_change', 'price': {'id': 'price_pro_monthly'}}]},
+        }
+        mock_update.return_value = {
+            'id': 'sub_plan_change',
+            'customer': 'cus_plan_change',
+            'status': 'active',
+            'items': {'data': [{'id': 'si_plan_change', 'price': {'id': 'price_plus_yearly'}}]},
+            'metadata': {'plan': 'plus', 'interval': 'yearly'},
+        }
+
+        response = self.client.post(
+            '/api/payment/change-plan/',
+            {'plan': 'plus', 'interval': 'yearly'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['plan'], 'plus')
+        self.assertEqual(response.data['interval'], 'yearly')
+        mock_update.assert_called_once_with(
+            'sub_plan_change',
+            'si_plan_change',
+            'price_plus_yearly',
+            plan='plus',
+            interval='yearly',
+            company_id=self.company.pk,
+        )
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.plan, 'plus')
+        self.assertEqual(self.company.billing_interval, 'yearly')
+
+    @patch('payment.stripe_client.cancel_subscription')
+    def test_free_downgrade_schedules_period_end_cancellation(self, mock_cancel):
+        response = self.client.post(
+            '/api/payment/change-plan/',
+            {'plan': 'free'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['effective'], 'current_period_end')
+        mock_cancel.assert_called_once_with('sub_plan_change')
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.plan, 'pro')
+
+    @patch('payment.stripe_client.create_checkout_session')
+    @patch('payment.stripe_client.create_customer')
+    def test_paid_plan_change_without_subscription_returns_checkout_url(
+        self, mock_create_customer, mock_create_checkout
+    ):
+        self.company.stripe_subscription_id = ''
+        self.company.stripe_customer_id = ''
+        self.company.plan = 'free'
+        self.company.save(update_fields=['stripe_subscription_id', 'stripe_customer_id', 'plan'])
+        mock_create_customer.return_value.id = 'cus_new_checkout'
+        mock_create_checkout.return_value = {'url': 'https://checkout.stripe.com/test'}
+
+        response = self.client.post(
+            '/api/payment/change-plan/',
+            {'plan': 'pro', 'interval': 'monthly'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['checkoutRequired'])
+        self.assertEqual(response.data['checkoutUrl'], 'https://checkout.stripe.com/test')
+        mock_create_checkout.assert_called_once()
+
+
 class PlanLimitsServiceTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(

@@ -220,3 +220,25 @@ class SubscriptionPlan(models.Model):
             return None
         return (self.team_managers or 0) + (self.agents or 0)
 
+
+class StripePlanPrice(models.Model):
+    class Interval(models.TextChoices):
+        MONTHLY = 'monthly', 'Monthly'
+        YEARLY = 'yearly', 'Yearly'
+
+    plan_slug = models.CharField(max_length=100)
+    interval = models.CharField(max_length=10, choices=Interval.choices)
+    stripe_price_id = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['plan_slug', 'interval'],
+                name='unique_stripe_price_per_plan_interval',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.plan_slug} ({self.interval}): {self.stripe_price_id}'
+

@@ -69,6 +69,63 @@ def price_id_for(plan, interval='monthly'):
     return price_id
 
 
+def price_id_for_plan_change(plan, interval='monthly'):
+    """Resolve a configured or cached Stripe Price, creating one if needed."""
+    plan = normalize_plan(plan)
+    interval = normalize_interval(interval)
+    env_name = get_price_env_map().get((plan, interval))
+    configured_price = getattr(settings, env_name, '') if env_name else ''
+    if not configured_price and plan == PLAN_PRO and interval == 'yearly':
+        configured_price = getattr(settings, 'STRIPE_PRICE_PRO_ANNUAL', '')
+    if configured_price:
+        return configured_price
+
+    from payment.models import StripePlanPrice
+
+    cached_price = StripePlanPrice.objects.filter(
+        plan_slug=plan,
+        interval=interval,
+    ).first()
+    if cached_price:
+        return cached_price.stripe_price_id
+
+    client = _client()
+    plan_name = plan_limits.get_plan_name(plan)
+    product = client.products.create({
+        'name': f'{plan_name} Plan',
+        'metadata': {'plan': plan},
+    })
+    price = client.prices.create({
+        'product': product.id,
+        'currency': 'usd',
+        'unit_amount': plan_limits.get_plan_amount_cents(plan, interval),
+        'recurring': {'interval': 'month' if interval == 'monthly' else 'year'},
+        'metadata': {'plan': plan, 'interval': interval},
+    })
+    cached_price, _ = StripePlanPrice.objects.get_or_create(
+        plan_slug=plan,
+        interval=interval,
+        defaults={'stripe_price_id': price.id},
+    )
+    return cached_price.stripe_price_id
+
+
+def update_subscription_plan(subscription_id, subscription_item_id, price_id, *, plan, interval, company_id):
+    """Replace a subscription item and invoice applicable prorations immediately."""
+    client = _client()
+    return client.subscriptions.update(subscription_id, {
+        'items': [{'id': subscription_item_id, 'price': price_id}],
+        'proration_behavior': 'always_invoice',
+        'payment_behavior': 'error_if_incomplete',
+        'cancel_at_period_end': False,
+        'metadata': {
+            'company_id': str(company_id),
+            'plan': normalize_plan(plan),
+            'interval': normalize_interval(interval),
+        },
+    })
+
+
 def plan_and_interval_for_price(price_id):
     """Reverse lookup: return (plan, interval) for a given Stripe price ID."""
     if not price_id:

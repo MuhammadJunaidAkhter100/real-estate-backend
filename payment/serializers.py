@@ -33,6 +33,14 @@ class CheckoutRequestSerializer(serializers.Serializer):
     )
 
 
+class PlanChangeRequestSerializer(serializers.Serializer):
+    plan = serializers.CharField(required=True)
+    interval = serializers.ChoiceField(
+        choices=['monthly', 'yearly', 'annual'],
+        required=False,
+    )
+
+
 class VerifySessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(
         required=True,

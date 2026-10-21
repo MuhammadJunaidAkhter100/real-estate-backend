@@ -1,5 +1,11 @@
 from django.contrib import admin
-from payment.models import CreditCharge, ProcessedStripeEvent, ReferralInvitation, UsageCounter
+from payment.models import (
+    CreditCharge,
+    ProcessedStripeEvent,
+    ReferralInvitation,
+    StripePlanPrice,
+    UsageCounter,
+)
 
 
 @admin.register(ProcessedStripeEvent)
@@ -35,3 +41,11 @@ class ReferralInvitationAdmin(admin.ModelAdmin):
         'referral_code', 'reward_credits', 'joined_reward_credits',
         'reward_period_start',
     )
+
+
+@admin.register(StripePlanPrice)
+class StripePlanPriceAdmin(admin.ModelAdmin):
+    list_display = ('plan_slug', 'interval', 'stripe_price_id', 'created_at')
+    list_filter = ('interval',)
+    search_fields = ('plan_slug', 'stripe_price_id')
+    readonly_fields = ('plan_slug', 'interval', 'stripe_price_id', 'created_at')
