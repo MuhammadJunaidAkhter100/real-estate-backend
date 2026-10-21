@@ -3,6 +3,7 @@
 from datetime import datetime
 from datetime import timezone as dt_timezone
 
+from django.db.models import Sum
 from django.utils import timezone
 
 # Plans definitions
@@ -162,28 +163,47 @@ def normalize_interval(interval):
     return 'monthly'
 
 
-def limit_for(plan, kind):
+def limit_for(plan, kind, company_id=None):
     """Return the cap for ``kind`` on ``plan``, or ``None`` when unlimited."""
     norm_plan = normalize_plan(plan)
+    limit = None
     try:
         from payment.models import SubscriptionPlan
         db_plan = SubscriptionPlan.objects.filter(slug=norm_plan).first()
         if db_plan:
             if kind == 'users':
-                return db_plan.users_limit
+                limit = db_plan.users_limit
             elif kind == 'agents':
-                return None if db_plan.is_agents_unlimited else db_plan.agents
+                limit = None if db_plan.is_agents_unlimited else db_plan.agents
             elif kind == 'team_managers':
-                return None if db_plan.is_team_managers_unlimited else db_plan.team_managers
+                limit = None if db_plan.is_team_managers_unlimited else db_plan.team_managers
             elif kind == 'ai_credits':
-                return None if db_plan.is_credits_unlimited else db_plan.ai_credits
+                limit = None if db_plan.is_credits_unlimited else db_plan.ai_credits
             elif kind == 'ai_proposals':
-                return None
+                limit = None
+            else:
+                limit = None
+        else:
+            limit = PLAN_LIMITS.get(norm_plan, PLAN_LIMITS[PLAN_MANUAL]).get(kind)
     except Exception:
-        pass
+        limit = PLAN_LIMITS.get(norm_plan, PLAN_LIMITS[PLAN_MANUAL]).get(kind)
 
-    config = PLAN_LIMITS.get(norm_plan, PLAN_LIMITS[PLAN_MANUAL])
-    return config.get(kind)
+    if kind == 'ai_credits' and company_id and limit is not None:
+        from payment.models import ReferralInvitation
+
+        current_period = current_period_start()
+        inviter_rewards = ReferralInvitation.objects.filter(
+            inviter_company_id=company_id,
+            status=ReferralInvitation.Status.JOINED,
+            reward_period_start=current_period,
+        ).aggregate(total=Sum('reward_credits'))['total'] or 0
+        joined_rewards = ReferralInvitation.objects.filter(
+            joined_company_id=company_id,
+            status=ReferralInvitation.Status.JOINED,
+            reward_period_start=current_period,
+        ).aggregate(total=Sum('joined_reward_credits'))['total'] or 0
+        limit += inviter_rewards + joined_rewards
+    return limit
 
 
 def is_unlimited(plan, kind):

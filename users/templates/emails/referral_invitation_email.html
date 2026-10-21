@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ brand_name }} Referral Invitation</title>
+  <style>
+    body { margin: 0; padding: 24px 12px; background: #0f172a; color: #eceef1; font-family: Arial, sans-serif; }
+    .panel { max-width: 600px; margin: 0 auto; overflow: hidden; border: 1px solid #334155; border-radius: 16px; background: #1e293b; }
+    .header { padding: 28px 30px; background: #172033; }
+    .brand { color: #9cc0de; font-size: 14px; font-weight: 700; }
+    h1 { margin: 20px 0 10px; color: #fff; font-size: 26px; }
+    p { color: #cbd5e1; font-size: 15px; line-height: 1.7; }
+    .content { padding: 28px 30px 34px; }
+    .reward { margin: 22px 0; padding: 18px; border: 1px solid #476987; border-radius: 12px; background: #24374a; color: #fff; text-align: center; }
+    .reward strong { display: block; color: #9cc0de; font-size: 28px; }
+    .button { display: inline-block; margin: 12px 0 20px; padding: 14px 24px; border-radius: 8px; background: #4a7aa8; color: #fff !important; font-weight: 700; text-decoration: none; }
+    .footer { padding: 20px 30px; border-top: 1px solid #334155; color: #94a3b8; font-size: 12px; line-height: 1.6; }
+    a { color: #9cc0de; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <header class="header">
+      <div class="brand">{{ brand_name }}</div>
+      <h1>You have a referral invitation</h1>
+      <p>{{ inviter_name }} from {{ company_name }} invited you to join {{ brand_name }}.</p>
+    </header>
+    <section class="content">
+      <p>Join using the button below. Once your company signup is complete, both your company and {{ company_name }} will receive:</p>
+      <div class="reward"><strong>100 credits each</strong>Added to each company's current plan credit allowance</div>
+      <p style="text-align:center"><a class="button" href="{{ signup_url }}">Join {{ brand_name }}</a></p>
+    </section>
+  </main>
+</body>
+</html>

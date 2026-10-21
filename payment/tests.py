@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from payment import plan_limits, services
 from payment.exceptions import PlanLimitReached
-from payment.models import ProcessedStripeEvent, UsageCounter
+from payment.models import ProcessedStripeEvent, ReferralInvitation, UsageCounter
 from users.models import Company, User
 
 
@@ -218,6 +218,160 @@ class RegisterCompanyTests(TestCase):
         self.assertIn("Welcome to", welcome_mail.subject)
         self.assertIn("Your Workspace is Ready", welcome_mail.subject)
         self.assertTrue(any(mime == 'text/html' for _, mime in welcome_mail.alternatives))
+
+    @patch('users.tasks.notify_admins')
+    def test_referral_link_signup_awards_100_credits_once(self, _mock_notify):
+        inviter_company = Company.objects.create(name='Referring Co', plan='free')
+        inviter = User.objects.create_user(
+            email='referrer@example.com',
+            first_name='Referring',
+            last_name='Admin',
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+            company=inviter_company,
+        )
+        self.client.force_authenticate(user=inviter)
+        invitation_response = self.client.post('/api/payment/referrals/generate-url/', {}, format='json')
+
+        self.assertEqual(invitation_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(list(invitation_response.data), ['referral_url'])
+        listing_response = self.client.get('/api/payment/referrals/')
+        self.assertEqual(listing_response.data['summary']['people_invited'], 1)
+        self.assertEqual(listing_response.data['summary']['pending'], 1)
+        self.assertEqual(listing_response.data['summary']['credits_earned'], 0)
+        self.assertEqual(len(listing_response.data['invitations']), 1)
+        referral_code = listing_response.data['invitations'][0]['referral_code']
+        self.assertIn(referral_code, invitation_response.data['referral_url'])
+
+        self.client.force_authenticate(user=None)
+        signup_payload = {
+            'company_name': 'Referred Co',
+            'countries': ['Algeria'],
+            'first_name': 'New',
+            'last_name': 'Admin',
+            'email': 'new-admin@example.com',
+            'password': 'StrongPass!234',
+            'plan': 'free',
+            'referral_code': referral_code,
+        }
+        response = self.client.post('/api/auth/register-company/', signup_payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        invitation = ReferralInvitation.objects.get(referral_code=referral_code)
+        self.assertEqual(invitation.status, ReferralInvitation.Status.JOINED)
+        self.assertEqual(invitation.reward_credits, 100)
+        self.assertEqual(
+            services.limits_for('free', company_id=inviter_company.pk)['ai_credits'],
+            200,
+        )
+        self.assertEqual(
+            services.usage_snapshot(inviter_company.pk)['ai_credits']['remaining'],
+            200,
+        )
+        joined_company = Company.objects.get(name='Referred Co')
+        self.assertEqual(
+            services.limits_for('free', company_id=joined_company.pk)['ai_credits'],
+            200,
+        )
+
+        repeated_signup = self.client.post('/api/auth/register-company/', {
+            **signup_payload,
+            'company_name': 'Second Referred Co',
+            'email': 'second-admin@example.com',
+        }, format='json')
+        self.assertEqual(repeated_signup.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('users.tasks.send_referral_invitation_email.delay')
+    def test_email_referral_invitation_sends_signup_link(self, mock_send_invitation):
+        company = Company.objects.create(name='Email Referring Co', plan='free')
+        admin = User.objects.create_user(
+            email='email-referrer@example.com',
+            first_name='Email',
+            last_name='Admin',
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+            company=company,
+        )
+        self.client.force_authenticate(user=admin)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                '/api/payment/referrals/',
+                {'invited_email': 'invitee@example.com'},
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['source'], 'email')
+        mock_send_invitation.assert_called_once_with(
+            'invitee@example.com',
+            'Email Admin',
+            'Email Referring Co',
+            response.data['referral_url'],
+        )
+
+        from django.core import mail
+        from django.test import override_settings
+        from users.tasks import send_referral_invitation_email
+
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'):
+            mail.outbox.clear()
+            send_referral_invitation_email.run(
+                'invitee@example.com',
+                'Email Admin',
+                'Email Referring Co',
+                response.data['referral_url'],
+            )
+
+        sent_email = mail.outbox[-1]
+        self.assertIn('Email Admin', sent_email.body)
+        self.assertIn('both your company', sent_email.body.lower())
+        self.assertIn(response.data['referral_code'], sent_email.body)
+        self.assertIn('100 credits each', sent_email.alternatives[0][0])
+
+    def test_referral_list_create_delete_and_generate_url_endpoints(self):
+        company = Company.objects.create(name='CRUD Referring Co', plan='free')
+        admin = User.objects.create_user(
+            email='crud-referrer@example.com',
+            first_name='CRUD',
+            last_name='Admin',
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+            company=company,
+        )
+        self.client.force_authenticate(user=admin)
+
+        created = self.client.post(
+            '/api/payment/referrals/generate-url/', {}, format='json'
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        invitation_id = self.client.get('/api/payment/referrals/').data['invitations'][0]['id']
+        detail_url = f'/api/payment/referrals/{invitation_id}/'
+
+        listing = self.client.get('/api/payment/referrals/')
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual(listing.data['invitations'][0]['id'], invitation_id)
+        self.assertEqual(self.client.get(detail_url).status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.patch(detail_url, {'invited_email': 'updated-invitee@example.com'}).status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+        self.assertEqual(
+            self.client.put(detail_url, {'invited_email': 'updated-invitee@example.com'}).status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+        email_invitation = self.client.post(
+            '/api/payment/referrals/',
+            {'invited_email': 'invitee@example.com'},
+            format='json',
+        )
+        self.assertEqual(email_invitation.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(email_invitation.data['source'], 'email')
+
+        deleted = self.client.delete(detail_url)
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(ReferralInvitation.objects.filter(pk=invitation_id).exists())
 
 
 class WebsiteScrapeWordExportTests(TestCase):

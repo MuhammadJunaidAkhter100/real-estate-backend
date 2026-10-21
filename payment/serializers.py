@@ -56,6 +56,7 @@ class RegisterCompanySerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=8, trim_whitespace=False)
     plan = serializers.CharField(required=False, default='free')
     interval = serializers.CharField(required=False, default='monthly')
+    referral_code = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     forbidden_field_names = (
         'status', 'role', 'company', 'companyId', 'company_id',
@@ -110,12 +111,32 @@ class RegisterCompanySerializer(serializers.Serializer):
         validate_password(value)
         return value
 
+    def validate_referral_code(self, value):
+        if not value:
+            return None
+
+        from payment.models import ReferralInvitation
+
+        invitation = ReferralInvitation.objects.filter(
+            referral_code=value,
+            status=ReferralInvitation.Status.PENDING,
+        ).select_related('inviter_user').first()
+        if invitation is None:
+            raise serializers.ValidationError('This referral link is invalid or has already been used.')
+        email = self.initial_data.get('email', '').strip().lower()
+        if invitation.invited_email and invitation.invited_email.lower() != email:
+            raise serializers.ValidationError('This invitation was sent to a different email address.')
+        if invitation.inviter_user.email.lower() == email:
+            raise serializers.ValidationError('You cannot use your own referral link.')
+        return invitation
+
     def create(self, validated_data):
         from django.db import transaction
         from payment import plan_limits
         from users.models import Company, User
 
         raw_plan = validated_data.get('plan', 'free')
+        referral_invitation = validated_data.pop('referral_code', None)
         normalized_plan = plan_limits.normalize_plan(raw_plan)
         interval = validated_data.get('interval', 'monthly')
         if interval == 'annual':
@@ -148,6 +169,27 @@ class RegisterCompanySerializer(serializers.Serializer):
                 countries=list(validated_data['countries']),
                 company=company,
             )
+
+            if referral_invitation is not None:
+                from payment.models import ReferralInvitation
+
+                locked_invitation = ReferralInvitation.objects.select_for_update().get(
+                    pk=referral_invitation.pk
+                )
+                if locked_invitation.status != ReferralInvitation.Status.PENDING:
+                    raise serializers.ValidationError(
+                        {'referral_code': 'This referral link has already been used.'}
+                    )
+                locked_invitation.status = ReferralInvitation.Status.JOINED
+                locked_invitation.joined_company = company
+                locked_invitation.reward_credits = 100
+                locked_invitation.joined_reward_credits = 100
+                locked_invitation.reward_period_start = plan_limits.current_period_start()
+                locked_invitation.save(update_fields=[
+                    'status', 'joined_company', 'reward_credits',
+                    'joined_reward_credits',
+                    'reward_period_start', 'updated_at',
+                ])
 
             # 1. Super Admin notification (HTML template with plain text fallback)
             from users.tasks import _person, notify_admins
@@ -186,6 +228,47 @@ class RegisterCompanySerializer(serializers.Serializer):
                 )
 
         return company, admin_user
+
+
+class ReferralInvitationSerializer(serializers.ModelSerializer):
+    source = serializers.CharField(read_only=True)
+    referral_url = serializers.SerializerMethodField()
+
+    class Meta:
+        from payment.models import ReferralInvitation
+
+        model = ReferralInvitation
+        fields = [
+            'id', 'invited_email', 'referral_code', 'referral_url', 'source',
+            'status', 'reward_credits', 'joined_reward_credits', 'created_at',
+        ]
+        read_only_fields = [
+            'id', 'referral_code', 'referral_url', 'source', 'status',
+            'reward_credits', 'joined_reward_credits', 'created_at',
+        ]
+
+    def get_referral_url(self, obj):
+        from django.conf import settings
+
+        base = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000').rstrip('/')
+        return f'{base}/signup?referral_code={obj.referral_code}'
+
+    def validate_invited_email(self, value):
+        value = value.strip().lower()
+        if value:
+            from payment.models import ReferralInvitation
+
+            company_id = self.context['request'].user.company_id
+            duplicate = ReferralInvitation.objects.filter(
+                inviter_company_id=company_id,
+                invited_email__iexact=value,
+                status=ReferralInvitation.Status.PENDING,
+            )
+            if self.instance:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                raise serializers.ValidationError('An invitation for this email is already pending.')
+        return value
 
 
 def issue_tokens(user):

@@ -231,6 +231,36 @@ def send_otp_email(user, otp):
     msg.send(fail_silently=False)
 
 
+@shared_task
+def send_referral_invitation_email(recipient_email, inviter_name, company_name, signup_url):
+    """Send the referral link and explain the credit reward for both companies."""
+    context = {
+        **_brand_context(),
+        'inviter_name': inviter_name,
+        'company_name': company_name,
+        'signup_url': signup_url,
+    }
+    html_body = render_to_string('emails/referral_invitation_email.html', context)
+    plain_body = (
+        f'{inviter_name} from {company_name} invited you to join {_brand()}.\n\n'
+        'Complete your company signup using this link. Both your company and the '
+        f'referring company will receive 100 credits: {signup_url}\n\n'
+        f'{_signature()}'
+    )
+    message = EmailMultiAlternatives(
+        subject=f'You are invited to join {_brand()}',
+        body=plain_body,
+        from_email=_from_email(),
+        to=[recipient_email],
+    )
+    message.attach_alternative(html_body, 'text/html')
+
+    try:
+        message.send(fail_silently=False)
+    except Exception:  # noqa: BLE001
+        logger.exception('Failed to send referral invitation to %s', recipient_email)
+
+
 # def send_superadmin_created_account_email(user, plain_password):
 #     """
 #     Notify a user that their account was created by an admin.

@@ -5,22 +5,25 @@ import stripe
 from django.conf import settings
 from django.core.paginator import EmptyPage, Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.utils import timezone
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework import permissions, status, viewsets
+from rest_framework import mixins, permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from payment import plan_limits, services, stripe_client, webhooks
 from payment.guards import payment_exempt
-from payment.models import ProcessedStripeEvent, SubscriptionPlan
+from payment.models import ProcessedStripeEvent, ReferralInvitation, SubscriptionPlan
 from payment.serializers import (
     CheckoutRequestSerializer,
     CompanyNameTaken,
     EmailAlreadyRegistered,
     RegisterCompanySerializer,
+    ReferralInvitationSerializer,
     SubscriptionPlanSerializer,
     VerifySessionSerializer,
     issue_tokens,
@@ -211,7 +214,7 @@ class BillingStatusView(APIView):
             'currentPeriodEnd': state.get('current_period_end'),
             'hasPaymentMethod': bool(company.stripe_customer_id),
             'periodStart': plan_limits.current_period_start().isoformat(),
-            'limits': services.limits_for(plan),
+            'limits': services.limits_for(plan, company_id=company.pk),
             'usage': services.usage_snapshot(company.pk, plan=plan),
         })
 
@@ -372,6 +375,89 @@ class RegisterCompanyView(APIView):
             'checkoutUrl': checkout_url,
         }
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+class IsCompanyAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        return bool(
+            user
+            and user.is_authenticated
+            and user.role == User.Role.COMPANY_ADMIN
+            and user.company_id
+        )
+
+
+class ReferralInvitationViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = ReferralInvitationSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
+
+    def get_queryset(self):
+        user = self.request.user
+        return ReferralInvitation.objects.filter(
+            inviter_company_id=user.company_id
+        ).select_related('inviter_user', 'joined_company')
+
+    def list(self, request, *args, **kwargs):
+        invitations = self.get_queryset()
+        totals = invitations.aggregate(credits_earned=Sum('reward_credits'))
+        return Response({
+            'summary': {
+                'people_invited': invitations.count(),
+                'joined': invitations.filter(status=ReferralInvitation.Status.JOINED).count(),
+                'pending': invitations.filter(status=ReferralInvitation.Status.PENDING).count(),
+                'credits_earned': totals['credits_earned'] or 0,
+            },
+            'invitations': self.get_serializer(invitations, many=True).data,
+        })
+
+    def create(self, request, *args, **kwargs):
+        if not request.data.get('invited_email'):
+            return Response(
+                {'invited_email': ['This field is required for email invitations.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['post'], url_path='generate-url')
+    def generate_url(self, request):
+        invitation = ReferralInvitation.objects.create(
+            inviter_company=request.user.company,
+            inviter_user=request.user,
+        )
+        serializer = self.get_serializer(invitation)
+        return Response(
+            {'referral_url': serializer.data['referral_url']},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def perform_create(self, serializer):
+        invitation = serializer.save(
+            inviter_company=self.request.user.company,
+            inviter_user=self.request.user,
+        )
+        if invitation.invited_email:
+            from django.conf import settings
+            from users.tasks import send_referral_invitation_email
+
+            frontend = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000').rstrip('/')
+            signup_url = f'{frontend}/signup?referral_code={invitation.referral_code}'
+            transaction.on_commit(lambda: send_referral_invitation_email.delay(
+                invitation.invited_email,
+                self.request.user.full_name,
+                invitation.inviter_company.name,
+                signup_url,
+            ))
+
+    def perform_destroy(self, instance):
+        if instance.status != ReferralInvitation.Status.PENDING:
+            raise ValidationError('Joined referrals cannot be deleted.')
+        instance.delete()
 
 
 @payment_exempt

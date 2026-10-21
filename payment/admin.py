@@ -1,5 +1,5 @@
 from django.contrib import admin
-from payment.models import CreditCharge, ProcessedStripeEvent, UsageCounter
+from payment.models import CreditCharge, ProcessedStripeEvent, ReferralInvitation, UsageCounter
 
 
 @admin.register(ProcessedStripeEvent)
@@ -21,3 +21,17 @@ class UsageCounterAdmin(admin.ModelAdmin):
     list_display = ('company', 'kind', 'period_start', 'used', 'updated_at')
     list_filter = ('kind', 'period_start')
     search_fields = ('company__name',)
+
+
+@admin.register(ReferralInvitation)
+class ReferralInvitationAdmin(admin.ModelAdmin):
+    list_display = (
+        'referral_code', 'inviter_company', 'invited_email', 'status',
+        'reward_credits', 'joined_reward_credits', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = ('referral_code', 'invited_email', 'inviter_company__name')
+    readonly_fields = (
+        'referral_code', 'reward_credits', 'joined_reward_credits',
+        'reward_period_start',
+    )

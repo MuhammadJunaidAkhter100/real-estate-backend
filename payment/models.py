@@ -1,4 +1,9 @@
 from django.db import models
+import uuid
+
+
+def generate_referral_code():
+    return uuid.uuid4().hex[:12]
 
 
 class ProcessedStripeEvent(models.Model):
@@ -86,6 +91,57 @@ class UsageCounter(models.Model):
 
     def __str__(self):
         return f"{self.company_id} {self.kind} {self.period_start:%Y-%m} = {self.used}"
+
+
+class ReferralInvitation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        JOINED = 'joined', 'Joined'
+
+    inviter_company = models.ForeignKey(
+        'users.Company',
+        on_delete=models.CASCADE,
+        related_name='referral_invitations',
+    )
+    inviter_user = models.ForeignKey(
+        'users.User',
+        on_delete=models.CASCADE,
+        related_name='referral_invitations',
+    )
+    invited_email = models.EmailField(blank=True, default='')
+    referral_code = models.CharField(
+        max_length=12,
+        unique=True,
+        default=generate_referral_code,
+        editable=False,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    joined_company = models.OneToOneField(
+        'users.Company',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='referral_invitation',
+    )
+    reward_credits = models.PositiveIntegerField(default=0)
+    joined_reward_credits = models.PositiveIntegerField(default=0)
+    reward_period_start = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @property
+    def source(self):
+        return 'email' if self.invited_email else 'link'
+
+    def __str__(self):
+        return f"{self.referral_code} ({self.status})"
 
 
 class SubscriptionPlan(models.Model):

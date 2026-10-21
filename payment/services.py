@@ -52,14 +52,14 @@ def current_count(company_id, kind, now=None):
     )
 
 
-def limits_for(plan):
+def limits_for(plan, company_id=None):
     """Return dictionary of limits for plan."""
     norm_plan = plan_limits.normalize_plan(plan)
     try:
         from payment.models import SubscriptionPlan
         db_plan = SubscriptionPlan.objects.filter(slug=norm_plan).first()
         if db_plan:
-            return {
+            result = {
                 'name': db_plan.name,
                 'monthly_price': float(db_plan.monthly_price),
                 'yearly_price': float(db_plan.yearly_price),
@@ -71,10 +71,18 @@ def limits_for(plan):
                 'features': db_plan.features or {},
                 'custom_features': db_plan.custom_features or [],
             }
+            result['ai_credits'] = plan_limits.limit_for(
+                norm_plan, UsageCounter.Kind.AI_CREDITS, company_id=company_id
+            )
+            return result
     except Exception:
         pass
 
-    return dict(plan_limits.PLAN_LIMITS.get(norm_plan, plan_limits.PLAN_LIMITS[plan_limits.PLAN_MANUAL]))
+    result = dict(plan_limits.PLAN_LIMITS.get(norm_plan, plan_limits.PLAN_LIMITS[plan_limits.PLAN_MANUAL]))
+    result['ai_credits'] = plan_limits.limit_for(
+        norm_plan, UsageCounter.Kind.AI_CREDITS, company_id=company_id
+    )
+    return result
 
 
 def usage_snapshot(company_id, plan=None):
@@ -95,7 +103,7 @@ def usage_snapshot(company_id, plan=None):
     kinds = ('users', 'agents', 'team_managers', 'ai_credits', 'ai_proposals')
     snapshot = {}
     for kind in kinds:
-        limit = plan_limits.limit_for(plan, kind)
+        limit = plan_limits.limit_for(plan, kind, company_id=company_id)
         if kind in roster:
             used = roster[kind]
         else:
@@ -144,7 +152,7 @@ def consume(company_id, kind, cost=1, *, receipt_id=None, now=None):
     Company.objects.select_for_update().only('pk').get(pk=company_id)
     locked = UsageCounter.objects.select_for_update().get(pk=counter.pk)
 
-    limit = plan_limits.limit_for(company.plan, kind)
+    limit = plan_limits.limit_for(company.plan, kind, company_id=company_id)
     if limit is not None and locked.used + cost > limit:
         if receipt_id:
             _drop_receipt(receipt_id)
@@ -207,7 +215,11 @@ def refund_credits(company_id, operation, *, receipt_id=None):
 def assert_can_use_credits(company_id, operation, *, cost=1, now=None):
     """Raise PlanLimitReached (403) if operation would exceed credit cap."""
     plan = Company.objects.only('pk', 'plan').filter(pk=company_id).values_list('plan', flat=True).first()
-    limit = plan_limits.limit_for(plan or plan_limits.PLAN_FREE, UsageCounter.Kind.AI_CREDITS)
+    limit = plan_limits.limit_for(
+        plan or plan_limits.PLAN_FREE,
+        UsageCounter.Kind.AI_CREDITS,
+        company_id=company_id,
+    )
     if limit is None:
         return
 
@@ -259,7 +271,7 @@ class PlanLimitsService:
                 return self.assert_can_add(kind, count, now=now)
 
         plan = self._locked_plan()
-        limit = plan_limits.limit_for(plan, kind)
+        limit = plan_limits.limit_for(plan, kind, company_id=self.company_id)
         if limit is None:
             return
 
