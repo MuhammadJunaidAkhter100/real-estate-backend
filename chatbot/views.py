@@ -877,3 +877,35 @@ class AdminPublicKnowledgeBaseStatusView(APIView):
 
         return Response({name: getattr(doc, name) for name in PUBLIC_KB_DOCUMENT_FIELDS})
 
+
+class RealtimeTranscriptionSessionView(APIView):
+    """Create a short-lived client secret for realtime audio transcription."""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Chatbot'],
+        operation_description=(
+            "Create a short-lived OpenAI client secret for realtime transcription. "
+            "Use the returned secret from the client to connect to the Realtime API."
+        ),
+        responses={
+            200: openapi.Response(
+                description='Realtime transcription session created.',
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'client_secret': openapi.Schema(type=openapi.TYPE_STRING),
+                        'expires_at': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'session': openapi.Schema(type=openapi.TYPE_OBJECT),
+                    },
+                ),
+            ),
+            502: 'Could not create a realtime transcription session.',
+            503: 'Speech transcription is not configured.',
+        },
+    )
+    def post(self, request):
+        return Response(
+            create_realtime_transcription_session(),
+            status=status.HTTP_200_OK,
+        )

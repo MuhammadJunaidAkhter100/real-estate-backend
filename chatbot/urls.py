@@ -12,6 +12,7 @@ from chatbot.views import (
     AdminPublicKnowledgeBaseView,
     AdminPublicKnowledgeBaseDeleteView,
     AdminPublicKnowledgeBaseStatusView,
+    RealtimeTranscriptionSessionView
 )
 
 urlpatterns = [
@@ -26,5 +27,6 @@ urlpatterns = [
     path('admin/public-kb/',                  AdminPublicKnowledgeBaseView.as_view(http_method_names=['get', 'post']), name='admin-public-kb'),
     path('admin/public-kb/<int:document_id>/', AdminPublicKnowledgeBaseDeleteView.as_view(http_method_names=['delete']), name='admin-public-kb-delete'),
     path('admin/public-kb/<int:document_id>/status/', AdminPublicKnowledgeBaseStatusView.as_view(http_method_names=['get']), name='admin-public-kb-status'),
+    path('transcribe/',     RealtimeTranscriptionSessionView.as_view(), name='chat-realtime-transcription-session'),
 ]
 
