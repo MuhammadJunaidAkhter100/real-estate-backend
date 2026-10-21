@@ -149,6 +149,61 @@ def send_company_admin_welcome_task(
     return {"status": "sent", "result": result}
 
 
+@shared_task(name="whatsapp.send_scrape_completion_notification")
+def send_scrape_completion_notification_task(
+    company_id: int,
+    website: str,
+    project_count: int = 0,
+    document_url: str | None = None,
+) -> dict[str, Any]:
+    """Notify a company via WhatsApp after a successful website scrape.
+
+    Uses a connected superadmin WhatsApp session, verifies the company phone is
+    registered on WhatsApp, and then sends the completion note with the scrubbed
+    website URL and the optional knowledge-base document URL.
+    """
+    from users.models import Company, User
+    from whatsapp.models import WhatsAppAccount
+
+    company = Company.objects.filter(pk=company_id).first()
+    if not company:
+        return {"status": "company_not_found"}
+    if not company.phone.strip():
+        return {"status": "phone_missing"}
+
+    sender_accounts = WhatsAppAccount.objects.filter(
+        user__role=User.Role.SUPERADMIN,
+        session_status__iexact="WORKING",
+    ).select_related("user")
+    sender_account = sender_accounts.order_by("created_at").first()
+    if not sender_account:
+        return {"status": "superadmin_whatsapp_not_connected"}
+
+    service = WhatsAppService()
+    number_result = service.check_number_exists(sender_account.user, company.phone)
+    if number_result.get("status") != "success" or number_result.get("numberExists") is not True:
+        return {"status": "number_not_on_whatsapp", "check": number_result}
+
+    chat_id = number_result.get("chatId")
+    if not chat_id:
+        return {"status": "whatsapp_chat_id_missing"}
+
+    message_lines = [
+        "Website scraping is complete.",
+        f"Company: {company.name}",
+        f"Website: {website or '-'}",
+        f"Projects saved: {project_count}",
+    ]
+    if document_url:
+        message_lines.extend(["", f"Knowledge base document: {document_url}"])
+
+    result = service.send_text_message(
+        user=sender_account.user,
+        payload={"chat_id": chat_id, "text": "\n".join(message_lines)},
+    )
+    return {"status": "sent", "result": result}
+
+
 def queue_company_admin_welcome(
     company_id: int,
     admin_id: int,
@@ -160,6 +215,28 @@ def queue_company_admin_welcome(
             send_company_admin_welcome_task.delay(company_id, admin_id, sender_user_id)
         except Exception:  # noqa: BLE001
             logger.exception("Could not queue WhatsApp welcome for company %s", company_id)
+
+    transaction.on_commit(_queue)
+
+
+def queue_scrape_completion_notification(
+    company_id: int,
+    website: str,
+    project_count: int = 0,
+    document_url: str | None = None,
+) -> None:
+    """Queue the website scrape completion message after the scrape transaction commits."""
+    def _queue() -> None:
+        try:
+            from whatsapp.tasks import send_scrape_completion_notification_task
+            send_scrape_completion_notification_task.delay(
+                company_id,
+                website,
+                project_count,
+                document_url,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not queue WhatsApp scrape-completion notification for company %s", company_id)
 
     transaction.on_commit(_queue)
 

@@ -17,8 +17,33 @@ logger = logging.getLogger(__name__)
 
 from payment.exceptions import PlanLimitReached
 from users.serializers import LeadSerializer, UserManagementSerializer
-
+from whatsapp.tasks import queue_scrape_completion_notification
 User = get_user_model()
+
+
+def queue_scrape_completion_notification(
+    company_id: int,
+    website: str,
+    project_count: int = 0,
+    document_url: str | None = None,
+) -> None:
+    """Queue the WhatsApp completion message after the scrape transaction commits."""
+    def _queue() -> None:
+        try:
+            from whatsapp.tasks import send_scrape_completion_notification_task
+            send_scrape_completion_notification_task.delay(
+                company_id,
+                website,
+                project_count,
+                document_url,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                'Could not queue WhatsApp scrape-completion notification for company %s',
+                company_id,
+            )
+
+    transaction.on_commit(_queue)
 
 
 def _brand() -> str:
@@ -513,6 +538,23 @@ def scrape_company_website_task(self, company_id: int, website: str):
     report['projects_created_or_updated'] = len(saved_project_ids)
     company.website = normalized_website
 
+    document_url = None
+    try:
+        from chatbot.models import KnowledgeBaseDocument
+
+        document = (
+            KnowledgeBaseDocument.objects.filter(
+                user__company=company,
+                source=KnowledgeBaseDocument.Source.WEBSITE,
+            )
+            .order_by('-created_at')
+            .first()
+        )
+        if document:
+            document_url = document.hosted_url or (document.file.url if document.file else None)
+    except Exception:
+        logger.exception('Failed to resolve website document URL for company_id=%s', company_id)
+
     _update_progress(
         100,
         'Scraping completed successfully!',
@@ -525,6 +567,15 @@ def scrape_company_website_task(self, company_id: int, website: str):
             'error': None,
         },
     )
+
+    if saved_project_ids:
+        queue_scrape_completion_notification(
+            company_id=company_id,
+            website=normalized_website,
+            project_count=len(saved_project_ids),
+            document_url=document_url,
+        )
+
     logger.info('scrape_company_website_task finished: company_id=%s status=%s projects=%s', company_id, report.get('status'), len(report.get('projects', [])))
     return report
 
