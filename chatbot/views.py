@@ -37,7 +37,7 @@ from chatbot.website_knowledge import (
 )
 from payment.services import consume_credits, refund_credits
 from users.permissions import IsCompanyAdmin
-
+from chatbot.audio_service import create_realtime_transcription_session
 logger = logging.getLogger(__name__)
 
 
