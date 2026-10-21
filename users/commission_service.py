@@ -106,6 +106,14 @@ class CommissionAnalyticsService:
         else:  # Agent
             qs = qs.filter(assigned_to=self.user)
 
+        current_country = (getattr(self.user, 'current_country', '') or '').strip()
+        if current_country and current_country.lower() != 'all':
+            qs = qs.filter(
+                Q(project__associated_country__iexact=current_country)
+                | Q(unit__project__associated_country__iexact=current_country)
+                | Q(units__project__associated_country__iexact=current_country)
+            ).distinct()
+
         # Query param filters
         if agent_id and self.role != User.Role.AGENT:
             qs = qs.filter(assigned_to_id=agent_id)

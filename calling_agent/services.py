@@ -130,6 +130,19 @@ def calls_visible_to_user(user: User) -> QuerySet[Call]:
     ).distinct()
 
 
+def calls_for_current_country(queryset: QuerySet[Call], user: User) -> QuerySet[Call]:
+    """Filter calls using the country of their lead, project, or related task."""
+    country = (getattr(user, 'current_country', '') or '').strip()
+    if not country or country.lower() == 'all':
+        return queryset
+
+    return queryset.filter(
+        Q(lead__desired_country__iexact=country)
+        | Q(lead__project__associated_country__iexact=country)
+        | Q(related_task__associated_country__iexact=country)
+    ).distinct()
+
+
 def is_call_owned_by_user(call: Call, user: User) -> bool:
     """Check whether a call record is directly owned by the authenticated user.
 

@@ -60,6 +60,7 @@ from calling_agent.services import (
     CallAnalyticsService,
     CallTerminationService,
     ManualCallInitiationService,
+    calls_for_current_country,
     calls_visible_to_user,
     is_call_owned_by_user,
 )
@@ -105,7 +106,9 @@ class CallListView(APIView):
         tags=["Calling Agent"],
     )
     def get(self, request, *args, **kwargs):
-        calls = calls_visible_to_user(request.user).select_related('lead')
+        calls = calls_for_current_country(
+            calls_visible_to_user(request.user), request.user
+        ).select_related('lead')
         call_status = request.query_params.get('status', '').strip()
         lead_id = request.query_params.get('lead_id', '').strip()
         user_id = request.query_params.get('user_id', '').strip()
@@ -146,7 +149,9 @@ class CallExportCSVView(APIView):
         tags=["Calling Agent"],
     )
     def get(self, request, *args, **kwargs):
-        calls = calls_visible_to_user(request.user).select_related('lead')
+        calls = calls_for_current_country(
+            calls_visible_to_user(request.user), request.user
+        ).select_related('lead')
         call_status = request.query_params.get('status', '').strip()
         lead_id = request.query_params.get('lead_id', '').strip()
         user_id = request.query_params.get('user_id', '').strip()
@@ -500,7 +505,9 @@ class CallAnalyticsView(APIView):
         tags=['Calling Agent'],
     )
     def get(self, request, *args, **kwargs):
-        calls = calls_visible_to_user(request.user)
+        calls = calls_for_current_country(
+            calls_visible_to_user(request.user), request.user
+        )
         call_status = request.query_params.get('status', '').strip()
         lead_id = request.query_params.get('lead_id', '').strip()
 

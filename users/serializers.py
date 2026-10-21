@@ -86,6 +86,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             user.status = User.Status.ACTIVE
             user.save()
 
+        if user.role == User.Role.SUPERADMIN and user.current_country:
+            user.current_country = ''
+            user.save(update_fields=['current_country'])
+
         # if not user.is_active:
         #     raise AuthenticationFailed("Your account is inactive. Please contact admin.")
 

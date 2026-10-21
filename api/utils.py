@@ -9,8 +9,8 @@ def apply_country_filter(queryset, user):
     - model has `desired_country` → filter on that
     - otherwise                       → return queryset unchanged
     """
-    country = getattr(user, 'current_country', None)
-    if not country or country == 'all':
+    country = (getattr(user, 'current_country', None) or '').strip()
+    if not country or country.lower() == 'all':
         return queryset
 
     field_names = {f.name for f in queryset.model._meta.get_fields()}

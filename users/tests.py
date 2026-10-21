@@ -48,6 +48,30 @@ class LoginResponseTestCase(TestCase):
         self.assertNotIn('website_data', AccessToken(response.data['access'])['user']['company'])
         self.assertNotIn('website_data', RefreshToken(response.data['refresh'])['user']['company'])
 
+    def test_superadmin_login_resets_country_selection_to_all(self):
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+
+        superadmin = User.objects.create_superuser(
+            email='login-superadmin@example.com',
+            password='password123',
+            first_name='Login',
+            last_name='Superadmin',
+        )
+        superadmin.current_country = 'UAE'
+        superadmin.save(update_fields=['current_country'])
+
+        response = APIClient().post(
+            reverse('token_obtain_pair'),
+            {'email': superadmin.email, 'password': 'password123'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['user']['current_country'], '')
+        superadmin.refresh_from_db()
+        self.assertEqual(superadmin.current_country, '')
+
 
 class CompanyCreationTestCase(TestCase):
     def test_reuses_existing_admin_for_new_company(self):
@@ -741,3 +765,45 @@ class CountryCurrencyTestCase(TestCase):
 
         self.assertEqual(service.currency, 'EUR')
         self.assertEqual(service.currency_symbol, '€')
+
+    def test_superadmin_commissions_are_all_countries_by_default_and_filter_by_country(self):
+        from calling_agent.tests.factories import create_project, create_user
+        from users.commission_service import CommissionAnalyticsService
+        from users.models import Lead
+
+        company = Company.objects.create(name='Sales Company')
+        agent = create_user(company=company, email='sales-agent@example.com')
+        uae_project = create_project(user=agent, title='UAE Sale')
+        uae_project.associated_country = 'UAE'
+        uae_project.save(update_fields=['associated_country'])
+        Lead.objects.create(
+            name='UAE Won Lead',
+            created_by=agent,
+            assigned_to=agent,
+            project=uae_project,
+            status=Lead.Status.CONVERTED_WON,
+        )
+
+        uk_project = create_project(user=agent, title='UK Sale')
+        uk_project.associated_country = 'UK'
+        uk_project.save(update_fields=['associated_country'])
+        Lead.objects.create(
+            name='UK Won Lead',
+            created_by=agent,
+            assigned_to=agent,
+            project=uk_project,
+            status=Lead.Status.CONVERTED_WON,
+        )
+
+        superadmin = User.objects.create_superuser(
+            email='sales-superadmin@example.com',
+            first_name='Sales',
+            last_name='Superadmin',
+            password='password123',
+        )
+        service = CommissionAnalyticsService(superadmin)
+        self.assertEqual(service.get_scoped_leads_queryset().count(), 2)
+
+        superadmin.current_country = 'UAE'
+        service = CommissionAnalyticsService(superadmin)
+        self.assertEqual(service.get_scoped_leads_queryset().count(), 1)

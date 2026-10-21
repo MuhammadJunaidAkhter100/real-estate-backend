@@ -94,7 +94,7 @@ class DashboardSummaryView(APIView):
         ),
     )
     def get(self, request):
-        from calling_agent.services import calls_visible_to_user
+        from calling_agent.services import calls_for_current_country, calls_visible_to_user
         from new_proposal.models import GeneratedProposal
 
         user = request.user
@@ -147,7 +147,7 @@ class DashboardSummaryView(APIView):
         # Projects belong to companies, so the counters only cover the
         # caller's own company (superadmin still sees every project).
         projects_qs = visible_projects(user)
-        calls_qs = calls_visible_to_user(user)
+        calls_qs = calls_for_current_country(calls_visible_to_user(user), user)
 
         leads_qs = apply_country_filter(leads_qs, user)
         tasks_qs = apply_country_filter(tasks_qs, user)

@@ -187,6 +187,18 @@ class CompanyScopedProjectTests(APITestCase):
             ['Alpha Tower', 'Beta Tower'],
         )
 
+    def test_superadmin_all_country_includes_projects_with_empty_associated_country(self):
+        empty_country_project = make_project('Unassigned Country Project', self.other_admin)
+
+        for selected_country in ('', 'all', 'ALL'):
+            with self.subTest(current_country=selected_country):
+                self.superadmin.current_country = selected_country
+                self.superadmin.save(update_fields=['current_country'])
+                self.assertIn(
+                    empty_country_project.title,
+                    self.listed_titles(self.superadmin),
+                )
+
     # ── Writes ───────────────────────────────────────────────────────────────
 
     def test_manager_agent_and_superadmin_get_403_on_every_write(self):

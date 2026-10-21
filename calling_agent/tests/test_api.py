@@ -14,7 +14,7 @@ from calling_agent.elevenlabs import OutboundCallResult
 from calling_agent.models import Call
 from calling_agent.storage import get_call_recording_storage
 from calling_agent.tests.factories import create_company, create_lead, create_user
-from users.models import Lead
+from users.models import Lead, User
 
 
 @override_settings(
@@ -63,6 +63,43 @@ class CallingAgentApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(len(response.data['results']), 1)
+
+    def test_superadmin_call_list_defaults_to_all_and_filters_selected_country(self) -> None:
+        self.lead.desired_country = 'UAE'
+        self.lead.save(update_fields=['desired_country'])
+        Call.objects.create(company=self.company, lead=self.lead, context_user=self.user)
+
+        other_company = create_company('UK Company')
+        other_user = create_user(
+            company=other_company,
+            email='uk-agent@example.com',
+        )
+        uk_lead = create_lead(user=other_user, name='UK Lead')
+        uk_lead.desired_country = 'UK'
+        uk_lead.save(update_fields=['desired_country'])
+        Call.objects.create(company=other_company, lead=uk_lead, context_user=other_user)
+
+        superadmin = User.objects.create_superuser(
+            email='country-superadmin@example.com',
+            first_name='Country',
+            last_name='Superadmin',
+            password='test-password-123',
+        )
+        self.client.force_authenticate(superadmin)
+
+        all_response = self.client.get(reverse('call-list'))
+        self.assertEqual(all_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(all_response.data['count'], 2)
+        all_dashboard = self.client.get(reverse('dashboard-summary'))
+        self.assertEqual(all_dashboard.data['total_calls'], 2)
+
+        superadmin.current_country = 'UAE'
+        superadmin.save(update_fields=['current_country'])
+        country_response = self.client.get(reverse('call-list'))
+        self.assertEqual(country_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(country_response.data['count'], 1)
+        country_dashboard = self.client.get(reverse('dashboard-summary'))
+        self.assertEqual(country_dashboard.data['total_calls'], 1)
 
     def test_call_list_includes_lead_status(self) -> None:
         self.lead.status = self.lead.Status.INTERESTED
