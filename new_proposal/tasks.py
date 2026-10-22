@@ -202,8 +202,10 @@ def claim_proposal_generation(proposal, receipt):
     with transaction.atomic():
         service = services.PlanLimitsService.for_company(company)
         service.assert_can_add("ai_proposals")
-        service.consume("ai_proposals", 1)
-        service.consume_credits("ai_proposal", receipt_id=receipt)
+        services.consume(company.pk, "ai_proposals", 1)
+        services.consume_credits(
+            company.pk, "ai_proposal", receipt_id=receipt
+        )
     return True
 
 
