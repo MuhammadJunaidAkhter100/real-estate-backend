@@ -880,7 +880,7 @@ class AdminPublicKnowledgeBaseStatusView(APIView):
 
 class RealtimeTranscriptionSessionView(APIView):
     """Create a short-lived client secret for realtime audio transcription."""
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         tags=['Chatbot'],
