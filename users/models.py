@@ -156,6 +156,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     countries = models.JSONField(default=list)
     current_country = models.CharField(max_length=100, blank=True, default='')
     profile_image = models.ImageField(upload_to=profile_image_upload_path, null=True, blank=True)
+    facebook = models.URLField(max_length=255, blank=True, default='')
+    instagram = models.URLField(max_length=255, blank=True, default='')
+    linkedin = models.URLField(max_length=255, blank=True, default='')
+    twitter = models.URLField(max_length=255, blank=True, default='')
+    website = models.URLField(max_length=255, blank=True, default='')
 
     # Keep these for Django internals / admin panel
     is_active = models.BooleanField(default=True)

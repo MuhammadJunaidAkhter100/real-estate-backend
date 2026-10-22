@@ -168,6 +168,42 @@ class CurrentCountrySelectionTestCase(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn('current_country', serializer.errors)
 
+    def test_me_profile_serializer_accepts_and_returns_social_links(self):
+        from users.serializers import MeUpdateSerializer, UserDetailSerializer
+
+        company = Company.objects.create(name='Social Links Company')
+        user = User.objects.create_user(
+            email='social-links@example.com',
+            first_name='Social',
+            last_name='Links',
+            password='password123',
+            company=company,
+            countries=['UAE'],
+            role=User.Role.COMPANY_ADMIN,
+        )
+
+        payload = {
+            'facebook': 'https://facebook.com/yourpage',
+            'instagram': 'https://instagram.com/yourhandle',
+            'linkedin': 'https://linkedin.com/in/yourprofile',
+            'twitter': 'https://x.com/yourhandle',
+            'website': 'https://yourdomain.com',
+        }
+
+        serializer = MeUpdateSerializer(user, data=payload, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        updated_user = serializer.save()
+
+        self.assertEqual(updated_user.facebook, payload['facebook'])
+        self.assertEqual(updated_user.instagram, payload['instagram'])
+        self.assertEqual(updated_user.linkedin, payload['linkedin'])
+        self.assertEqual(updated_user.twitter, payload['twitter'])
+        self.assertEqual(updated_user.website, payload['website'])
+
+        rendered = UserDetailSerializer(updated_user).data
+        for field_name, field_value in payload.items():
+            self.assertEqual(rendered[field_name], field_value)
+
 
 class TaskExpirationTestCase(TestCase):
     def setUp(self):

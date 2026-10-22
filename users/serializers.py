@@ -346,7 +346,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'email', 'first_name', 'last_name',
             'role', 'status', 'company', 'countries', 'current_country', 'is_staff',
-            'profile_image',
+            'profile_image', 'facebook', 'instagram', 'linkedin', 'twitter', 'website',
         ]
         read_only_fields = fields
 
@@ -365,12 +365,20 @@ class MeUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'profile_image', 'current_country']
+        fields = [
+            'first_name', 'last_name', 'profile_image', 'current_country',
+            'facebook', 'instagram', 'linkedin', 'twitter', 'website',
+        ]
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': False, 'max_length': 150},
             'last_name': {'required': False, 'allow_blank': False, 'max_length': 150},
             'profile_image': {'required': False, 'allow_null': True},
             'current_country': {'required': False, 'allow_blank': False},
+            'facebook': {'required': False, 'allow_blank': True},
+            'instagram': {'required': False, 'allow_blank': True},
+            'linkedin': {'required': False, 'allow_blank': True},
+            'twitter': {'required': False, 'allow_blank': True},
+            'website': {'required': False, 'allow_blank': True},
         }
 
     def validate_current_country(self, value):
@@ -459,9 +467,9 @@ class UserManagementSerializer(serializers.ModelSerializer):
             'role', 'status', 'countries', 'company', 'team', 'team_name', 'company_name',
             'assigned_leads_count',
             'assigned_leads',
-            'profile_image',
+            'profile_image', 'facebook', 'instagram', 'linkedin', 'twitter', 'website',
         ]
-        read_only_fields = ['id', 'team_name', 'company_name', 'profile_image']
+        read_only_fields = ['id', 'team_name', 'company_name', 'profile_image', 'facebook', 'instagram', 'linkedin', 'twitter', 'website']
 
     def get_assigned_leads(self, obj):
         # Only include the full assigned-leads list on the detail (retrieve) view.
