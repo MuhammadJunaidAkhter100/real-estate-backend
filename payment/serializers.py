@@ -216,19 +216,19 @@ class RegisterCompanySerializer(serializers.Serializer):
                 f"Phone: {company.phone or '-'}",
             ])
 
-            # # 2. Company Admin welcome email (Professional HTML template)
-            # from users.tasks import send_company_admin_welcome_email
-            # transaction.on_commit(
-            #     lambda: send_company_admin_welcome_email(admin_user, company)
-            # )
+            # 2. Company Admin welcome email (Professional HTML template)
+            from users.tasks import send_company_admin_welcome_email
+            transaction.on_commit(
+                lambda: send_company_admin_welcome_email(admin_user, company)
+            )
 
-            # # 3. WhatsApp welcome message (if configured)
-            # from whatsapp.tasks import queue_company_admin_welcome
-            # queue_company_admin_welcome(
-            #     company.pk,
-            #     admin_user.pk,
-            #     None,
-            # )
+            # 3. WhatsApp welcome message (if configured)
+            from whatsapp.tasks import queue_company_admin_welcome
+            queue_company_admin_welcome(
+                company.pk,
+                admin_user.pk,
+                None,
+            )
 
             # 4. Scraping task (if website provided)
             if company.website:
