@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from users.country_views import CompanyCountriesView, CompanyCountryDetailView, CountryListView
-from users.property_news import GulfNewsPropertyView, KhaleejTimesPropertyView, PropertyNewsCountryView, PropertyWireView
+from users.property_news import PropertyNewsCountryView
 from users.views import (
     AdminCompanyViewSet,
     CommissionAnalyticsView,
@@ -29,9 +29,6 @@ urlpatterns = [
     path('commissions/analytics/', CommissionAnalyticsView.as_view(), name='commission-analytics'),
     path('commissions/latest/', LatestCommissionsView.as_view(), name='latest-commissions'),
     path('stream-activity/', StreamActivityView.as_view(), name='stream-activity'),
-    path('property-news/khaleej-times/', KhaleejTimesPropertyView.as_view(), name='property-news-khaleej-times'),
-    path('property-news/gulf-news/', GulfNewsPropertyView.as_view(), name='property-news-gulf-news'),
-    path('property-news/property-wire/', PropertyWireView.as_view(), name='property-news-property-wire'),
     path('property-news/<str:country>/', PropertyNewsCountryView.as_view(), name='property-news-country-param'),
     path('countries/', CountryListView.as_view(), name='countries'),
     path('company/countries/', CompanyCountriesView.as_view(), name='company-countries'),

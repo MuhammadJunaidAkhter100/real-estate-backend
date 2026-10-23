@@ -381,6 +381,7 @@ class WebhookTests(TestCase):
         )
         self.assertEqual(session.url, 'https://checkout.stripe.com/test')
         call_args = mock_instance.checkout.sessions.create.call_args[0][0]
+        self.assertEqual(call_args['submit_type'], 'pay')
         self.assertEqual(call_args['line_items'][0]['price_data']['unit_amount'], 4900)
         self.assertEqual(call_args['line_items'][0]['price_data']['recurring']['interval'], 'month')
         self.assertEqual(call_args['metadata']['plan'], 'pro')

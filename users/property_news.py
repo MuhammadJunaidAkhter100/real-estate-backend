@@ -19,15 +19,18 @@ _CNBC_REAL_ESTATE_URL = "https://www.cnbc.com/real-estate/"
 
 _ARTICLE_BOX_CLASS = "subsection-listing-article-box"
 
-_COUNTRY_SOURCE_MAP = {
-    "us": "cnbc"
-}
-
 _SOURCE_URL_BY_KEY = {
     "cnbc": _CNBC_REAL_ESTATE_URL,
     "khaleejtimes": _SOURCE_URL,
     "gulfnews": _GULF_NEWS_SOURCE_URL,
     "propertywire": "https://www.propertywire.com/category/news/uk/",
+}
+
+_SOURCE_NAME_BY_KEY = {
+    "cnbc": "CNBC",
+    "khaleejtimes": "Khaleej Times",
+    "gulfnews": "Gulf News",
+    "propertywire": "Property Wire",
 }
 
 _REQUEST_HEADERS = {
@@ -159,15 +162,18 @@ def _normalize_country(country: str | None) -> str:
     return normalized
 
 
-def _resolve_country_source(country: str | None) -> str:
-    """Return the known source key for the provided country name."""
+def _resolve_country_sources(country: str | None) -> list[str]:
+    """Return the configured news sources for a country or country alias."""
     normalized = _normalize_country(country)
-    return _COUNTRY_SOURCE_MAP.get(normalized, "cnbc")
+    if normalized in {"uae", "u a e", "united arab emirates"}:
+        return ["khaleejtimes", "gulfnews"]
+    if normalized in {"uk", "u k", "gb", "great britain", "united kingdom"}:
+        return ["propertywire"]
+    return ["cnbc"]
 
 
-def _fetch_country_news(country: str | None) -> dict:
-    """Fetch property news for a country using the configured source."""
-    source_key = _resolve_country_source(country)
+def _fetch_source_news(source_key: str) -> dict:
+    """Fetch and parse property news from one configured source."""
     source_url = _SOURCE_URL_BY_KEY.get(source_key, _CNBC_REAL_ESTATE_URL)
 
     if source_key == "cnbc":
@@ -286,21 +292,42 @@ def _fetch_country_news(country: str | None) -> dict:
     return {"source": source_url, "count": 1, "articles": [article]}
 
 
-class KhaleejTimesPropertyView(APIView):
-    """GET the latest property listings scraped from Khaleej Times."""
+def _fetch_country_news(country: str | None) -> dict:
+    """Fetch all configured country sources and annotate each article."""
+    sources = []
+    articles = []
+    errors = []
 
-    permission_classes = [permissions.IsAuthenticated]
-
-    @swagger_auto_schema(tags=["Property News"])
-    def get(self, request):
-        result = _fetch_country_news("uae")
-        if result.get("error"):
-            return Response({"detail": f"Failed to fetch source page: {result['error']}"}, status=status.HTTP_502_BAD_GATEWAY)
-        return Response({
-            "source": result["source"],
+    for source_key in _resolve_country_sources(country):
+        result = _fetch_source_news(source_key)
+        source_name = _SOURCE_NAME_BY_KEY[source_key]
+        source = {
+            "name": source_name,
+            "url": result["source"],
             "count": result["count"],
-            "articles": result["articles"],
-        })
+        }
+        if result.get("error"):
+            source["error"] = result["error"]
+            errors.append({"source": source_name, "detail": result["error"]})
+        sources.append(source)
+
+        articles.extend(
+            {
+                **article,
+                "source_name": source_name,
+                "source_url": result["source"],
+            }
+            for article in result["articles"]
+        )
+
+    return {
+        "source": sources[0]["url"] if sources else "",
+        "source_name": " + ".join(source["name"] for source in sources),
+        "sources": sources,
+        "count": len(articles),
+        "articles": articles,
+        "errors": errors,
+    }
 
 
 class PropertyNewsCountryView(APIView):
@@ -310,124 +337,26 @@ class PropertyNewsCountryView(APIView):
 
     @swagger_auto_schema(tags=["Property News"])
     def get(self, request, country: str | None = None):
-        requested_country = country or request.query_params.get("country") or request.query_params.get("region") or "usa"
+        requested_country = (
+            country
+            or request.query_params.get("country")
+            or request.query_params.get("region")
+            or getattr(request.user, "current_country", "")
+            or "usa"
+        )
         result = _fetch_country_news(requested_country)
-        if result.get("error"):
-            return Response({"detail": f"Failed to fetch source page: {result['error']}"}, status=status.HTTP_502_BAD_GATEWAY)
+        if result["errors"] and len(result["errors"]) == len(result["sources"]):
+            return Response(
+                {"detail": "All property news sources failed.", "errors": result["errors"]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         return Response({
             "country": requested_country,
             "source": result["source"],
-            "count": result["count"],
+            "source_name": result["source_name"],
             "articles": result["articles"],
+            "errors": result["errors"],
         })
-
-
-# Arabian Business — Real Estate
-
-class GulfNewsPropertyView(APIView):
-    """
-    Fetch first property article from Gulf News.
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    @swagger_auto_schema(tags=["Property News"])
-    def get(self, request):
-
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/138.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.google.com/",
-            "Connection": "keep-alive",
-        }
-
-        try:
-            response = httpx.get(
-                _GULF_NEWS_SOURCE_URL,
-                headers=headers,
-                timeout=30,
-                follow_redirects=True,
-            )
-            response.raise_for_status()
-
-        except Exception as e:
-            logger.exception(e)
-            return Response(
-                {
-                    "detail": str(e),
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        # First article
-        article = soup.find("div", class_="eJkNT")
-
-        if article is None:
-            return Response(
-                {
-                    "detail": "Article not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Title
-        title = ""
-        heading = article.find("h1")
-        if heading:
-            title = heading.get_text(" ", strip=True)
-
-        # Description
-        text = ""
-        p = article.find("h2")
-        if p:
-            text = p.get_text(" ", strip=True)
-
-        # URL
-        link = ""
-        a = article.find("a", href=True)
-        if a:
-            href = a["href"]
-            if href.startswith("http"):
-                link = href
-            else:
-                link = f"https://gulfnews.com{href}"
-
-        # Image
-        image = ""
-        img = article.find("img")
-        if img:
-            image = (
-                img.get("src")
-                or img.get("data-src")
-                or img.get("data-lazy-src")
-                or img.get("data-original")
-                or ""
-            )
-
-            if image.startswith("//"):
-                image = "https:" + image
-
-            elif image.startswith("/"):
-                image = "https://gulfnews.com" + image
-
-        return Response(
-            {
-                "source": _GULF_NEWS_SOURCE_URL,
-                "article": {
-                    "title": title,
-                    "text": text,
-                    "image": image,
-                    "link": link,
-                },
-            }
-        )
 
 
 # Property Wire — UK Property News
@@ -463,43 +392,3 @@ def _parse_property_wire_card(card) -> dict:
     }
 
 
-class PropertyWireView(APIView):
-    """GET the first UK property article scraped from Property Wire."""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    @swagger_auto_schema(tags=["Property News"])
-    def get(self, request):
-        try:
-            response = _fetch_html(_PROPERTY_WIRE_SOURCE_URL)
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            logger.warning("Failed to fetch Property Wire news: %s", exc)
-            return Response(
-                {"detail": f"Failed to fetch source page: {exc}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        # The featured (first) post is the only one with an h3.text-32 headline;
-        # fall back to the first article on the page if the markup changes.
-        featured_heading = soup.select_one("article h3.text-32")
-        cards = [featured_heading.find_parent("article")] if featured_heading else soup.find_all("article")
-
-        article = None
-        for card in cards:
-            parsed = _parse_property_wire_card(card)
-            if parsed["title"] and parsed["link"]:
-                article = parsed
-                break
-
-        if article is None:
-            return Response(
-                {"detail": "Article not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        return Response({
-            "source": _PROPERTY_WIRE_SOURCE_URL,
-            "article": article,
-        })
