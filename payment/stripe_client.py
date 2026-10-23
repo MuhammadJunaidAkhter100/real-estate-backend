@@ -211,7 +211,6 @@ def create_checkout_session(
 
     return client.checkout.sessions.create({
         'mode': 'subscription',
-        'submit_type': 'pay',
         'customer': customer_id,
         'line_items': line_items,
         'client_reference_id': str(client_reference_id),
