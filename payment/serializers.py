@@ -33,6 +33,11 @@ class CheckoutRequestSerializer(serializers.Serializer):
     )
 
 
+class DevelopmentPlanBypassSerializer(serializers.Serializer):
+    company_email = serializers.EmailField(required=True)
+    enabled = serializers.BooleanField(required=False, default=True)
+
+
 class PlanChangeRequestSerializer(serializers.Serializer):
     plan = serializers.CharField(required=True)
     interval = serializers.ChoiceField(

@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.core import mail
@@ -8,6 +9,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from notifications.models import Notification
+from payment.exceptions import PlanLimitReached
 from users.models import Company, Lead, Task
 from users.tasks import check_and_update_task_expirations
 
@@ -120,6 +122,83 @@ class CompanyCreationTestCase(TestCase):
 
         self.assertNotIn('website', serializer.fields)
         self.assertNotIn('company_website', serializer.fields)
+
+
+class UserPlanSeatLimitsTestCase(TestCase):
+    def setUp(self):
+        from users.serializers import UserManagementSerializer
+
+        self.company = Company.objects.create(name='Seat Limit Company', plan='pro')
+        self.admin = User.objects.create_user(
+            email='seat-admin@example.com',
+            first_name='Seat',
+            last_name='Admin',
+            password='password123',
+            company=self.company,
+            role=User.Role.COMPANY_ADMIN,
+            status=User.Status.ACTIVE,
+        )
+        self.serializer_class = UserManagementSerializer
+        self.context = {'request': SimpleNamespace(user=self.admin)}
+
+    def test_agent_plan_cap_blocks_addition_before_total_user_cap(self):
+        for index in range(10):
+            User.objects.create_user(
+                email=f'plan-agent-{index}@example.com',
+                first_name='Plan',
+                last_name='Agent',
+                password='password123',
+                company=self.company,
+                role=User.Role.AGENT,
+            )
+
+        serializer = self.serializer_class(
+            data={
+                'email': 'over-cap-agent@example.com',
+                'first_name': 'Over',
+                'last_name': 'Cap',
+                'role': User.Role.AGENT,
+                'countries': [],
+                'company': self.company.pk,
+            },
+            context=self.context,
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        with self.assertRaises(PlanLimitReached):
+            serializer.save()
+
+    def test_team_manager_promotion_respects_plan_cap(self):
+        current_manager = User.objects.create_user(
+            email='existing-manager@example.com',
+            first_name='Existing',
+            last_name='Manager',
+            password='password123',
+            company=self.company,
+            role=User.Role.TEAM_MANAGER,
+        )
+        agent = User.objects.create_user(
+            email='promotion-agent@example.com',
+            first_name='Promotion',
+            last_name='Agent',
+            password='password123',
+            company=self.company,
+            role=User.Role.AGENT,
+        )
+        self.company.plan = 'free'
+        self.company.save(update_fields=['plan'])
+
+        serializer = self.serializer_class(
+            agent,
+            data={'role': User.Role.TEAM_MANAGER},
+            partial=True,
+            context=self.context,
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        with self.assertRaises(PlanLimitReached):
+            serializer.save()
+        self.assertEqual(current_manager.role, User.Role.TEAM_MANAGER)
 
 
 class CurrentCountrySelectionTestCase(TestCase):

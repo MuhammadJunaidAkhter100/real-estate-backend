@@ -793,6 +793,28 @@ class PostCallLeadStatusTransitionTests(TestCase):
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.status, Lead.Status.CONTACTED)
 
+    @patch('calling_agent.services.charge_call_credits')
+    def test_completed_call_charges_rounded_up_duration_minutes(self, charge_call):
+        call = Call.objects.create(
+            company=self.company,
+            lead=self.lead,
+            context_user=self.user,
+            phone_number='+447911123456',
+            status=Call.Status.IN_PROGRESS,
+        )
+
+        self.transition_service.apply(
+            call,
+            Call.Status.COMPLETED,
+            duration_seconds=61,
+        )
+
+        charge_call.assert_called_once_with(
+            self.company,
+            f'completed-call:{call.pk}',
+            minutes=2,
+        )
+
     def test_unanswered_call_updates_lead_status_to_no_answer(self) -> None:
         call = Call.objects.create(
             company=self.company,

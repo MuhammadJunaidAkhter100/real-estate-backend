@@ -1,6 +1,7 @@
 from django.contrib import admin
 from payment.models import (
     CreditCharge,
+    CreditCost,
     ProcessedStripeEvent,
     ReferralInvitation,
     StripePlanPrice,
@@ -20,6 +21,13 @@ class CreditChargeAdmin(admin.ModelAdmin):
     list_display = ('task_id', 'company', 'kind', 'cost', 'created_at')
     list_filter = ('kind', 'created_at')
     search_fields = ('task_id', 'company__name')
+
+
+@admin.register(CreditCost)
+class CreditCostAdmin(admin.ModelAdmin):
+    list_display = ('operation', 'credits_per_unit', 'unit', 'updated_at')
+    list_editable = ('credits_per_unit',)
+    ordering = ('operation',)
 
 
 @admin.register(UsageCounter)

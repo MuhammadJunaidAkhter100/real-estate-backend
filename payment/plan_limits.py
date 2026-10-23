@@ -6,6 +6,8 @@ from datetime import timezone as dt_timezone
 from django.db.models import Sum
 from django.utils import timezone
 
+from payment.cache import development_plan_bypass_is_active
+
 # Plans definitions
 PLAN_FREE = 'free'
 PLAN_PRO = 'pro'
@@ -134,9 +136,9 @@ PLAN_ALIASES = {
 }
 
 CREDIT_COSTS = {
-    'chat_turn': 1,
-    'ai_proposal': 10,
-    'calling_agent_call': 5,
+    'chat_turn': 5,
+    'ai_proposal': 20,
+    'calling_agent_call': 20,
     'transcript_processing': 1,
     'kb_document_extraction': 1,
 }
@@ -165,6 +167,9 @@ def normalize_interval(interval):
 
 def limit_for(plan, kind, company_id=None):
     """Return the cap for ``kind`` on ``plan``, or ``None`` when unlimited."""
+    if company_id and development_plan_bypass_is_active(company_id):
+        return None
+
     norm_plan = normalize_plan(plan)
     limit = None
     try:
@@ -180,7 +185,7 @@ def limit_for(plan, kind, company_id=None):
             elif kind == 'ai_credits':
                 limit = None if db_plan.is_credits_unlimited else db_plan.ai_credits
             elif kind == 'ai_proposals':
-                limit = None
+                limit = PLAN_LIMITS.get(norm_plan, PLAN_LIMITS[PLAN_MANUAL]).get(kind)
             else:
                 limit = None
         else:

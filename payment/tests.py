@@ -1,13 +1,13 @@
 import json
 from unittest.mock import patch, MagicMock
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from payment import plan_limits, services
 from payment.exceptions import PlanLimitReached
-from payment.models import ProcessedStripeEvent, ReferralInvitation, UsageCounter
+from payment.models import CreditCost, ProcessedStripeEvent, ReferralInvitation, UsageCounter
 from users.models import Company, User
 
 
@@ -39,6 +39,44 @@ class PaymentPlansTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(isinstance(response.data, list))
+
+    def test_billing_usage_returns_frontend_ready_remaining_balances(self):
+        from payment.plan_limits import current_period_start
+
+        UsageCounter.objects.create(
+            company=self.company,
+            kind=UsageCounter.Kind.AI_CREDITS,
+            period_start=current_period_start(),
+            used=25,
+        )
+        UsageCounter.objects.create(
+            company=self.company,
+            kind=UsageCounter.Kind.AI_PROPOSALS,
+            period_start=current_period_start(),
+            used=2,
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.get(reverse('billing-usage'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['plan']['slug'], 'free')
+        self.assertEqual(response.data['usage']['aiCredits']['used'], 25)
+        self.assertEqual(response.data['usage']['aiCredits']['remaining'], 75)
+        self.assertEqual(response.data['usage']['aiCredits']['percentUsed'], 25)
+        self.assertEqual(response.data['usage']['aiProposals']['used'], 2)
+        self.assertEqual(response.data['usage']['aiProposals']['limit'], 0)
+        self.assertEqual(response.data['usage']['aiProposals']['percentUsed'], 100)
+        self.assertEqual(response.data['creditCosts']['proposal']['creditsPerUnit'], 20)
+
+    def test_zero_cap_with_no_usage_reports_zero_percent(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.get(reverse('billing-usage'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['usage']['aiProposals']['used'], 0)
+        self.assertEqual(response.data['usage']['aiProposals']['percentUsed'], 0)
 
 
 class ChangePlanTests(TestCase):
@@ -176,12 +214,109 @@ class PlanLimitsServiceTests(TestCase):
         result = services.consume_credits(self.company.pk, 'chat_turn')
         self.assertTrue(result)
         current = services.current_count(self.company.pk, UsageCounter.Kind.AI_CREDITS)
-        self.assertEqual(current, 1)
+        self.assertEqual(current, 5)
 
         # Refund chat turn
         services.refund_credits(self.company.pk, 'chat_turn')
         current = services.current_count(self.company.pk, UsageCounter.Kind.AI_CREDITS)
         self.assertEqual(current, 0)
+
+    def test_database_credit_cost_updates_apply_without_code_changes(self):
+        rate = CreditCost.objects.get(operation='chat_turn')
+        rate.credits_per_unit = 9
+        rate.save(update_fields=['credits_per_unit', 'updated_at'])
+
+        services.consume_credits(self.company.pk, 'chat_turn')
+
+        self.assertEqual(
+            services.current_count(self.company.pk, UsageCounter.Kind.AI_CREDITS),
+            9,
+        )
+
+    def test_proposal_and_call_minute_default_rates(self):
+        self.assertEqual(services.credit_cost_for('ai_proposal'), 20)
+        self.assertEqual(services.credit_cost_for('calling_agent_call'), 20)
+
+        services.consume_credits(self.company.pk, 'ai_proposal')
+        services.consume_credits(
+            self.company.pk,
+            'calling_agent_call',
+            quantity=2,
+        )
+
+        self.assertEqual(
+            services.current_count(self.company.pk, UsageCounter.Kind.AI_CREDITS),
+            60,
+        )
+
+
+class DevelopmentPlanBypassTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.company = Company.objects.create(name='Development Co', plan='free')
+        self.company_admin = User.objects.create_user(
+            email='owner@development.example',
+            first_name='Company',
+            last_name='Owner',
+            company=self.company,
+            role=User.Role.COMPANY_ADMIN,
+        )
+        self.superadmin = User.objects.create_user(
+            email='superadmin@development.example',
+            first_name='Super',
+            last_name='Admin',
+            company=self.company,
+            role=User.Role.SUPERADMIN,
+            is_superuser=True,
+        )
+        self.url = reverse('development-plan-bypass')
+
+    @override_settings(DEBUG=True)
+    @patch('payment.views.enable_development_plan_bypass', return_value=True)
+    def test_superadmin_can_enable_indefinite_bypass_for_company_email(self, enable_bypass):
+        self.client.force_authenticate(user=self.superadmin)
+
+        response = self.client.post(
+            self.url,
+            {'company_email': self.company_admin.email},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['enabled'])
+        enable_bypass.assert_called_once_with(self.company.pk)
+
+    @override_settings(DEBUG=True)
+    def test_company_admin_cannot_enable_bypass(self):
+        self.client.force_authenticate(user=self.company_admin)
+
+        response = self.client.post(
+            self.url,
+            {'company_email': self.company_admin.email},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(DEBUG=False)
+    def test_bypass_endpoint_is_hidden_outside_debug(self):
+        self.client.force_authenticate(user=self.superadmin)
+
+        response = self.client.post(
+            self.url,
+            {'company_email': self.company_admin.email},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('payment.plan_limits.development_plan_bypass_is_active', return_value=True)
+    def test_active_bypass_removes_plan_caps_and_enables_features(self, _active):
+        limits = services.limits_for('free', company_id=self.company.pk)
+
+        self.assertIsNone(limits['ai_proposals'])
+        self.assertIsNone(limits['agents'])
+        self.assertTrue(limits['features']['ai_proposal_generation'])
 
 
 class WebhookTests(TestCase):

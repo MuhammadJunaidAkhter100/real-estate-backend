@@ -3,6 +3,7 @@
 import logging
 from rest_framework.permissions import BasePermission
 
+from payment.cache import development_plan_bypass_is_active
 from payment.exceptions import CompanyNotActive
 from payment.services import get_company_state
 
@@ -65,6 +66,8 @@ class SubscriptionGuard(BasePermission):
 
         company_id = getattr(user, 'company_id', None)
         if not company_id:
+            return True
+        if development_plan_bypass_is_active(company_id):
             return True
 
         state = get_company_state(company_id)

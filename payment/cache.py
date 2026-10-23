@@ -2,11 +2,13 @@
 
 import logging
 
+from django.conf import settings
 from django.core.cache import caches
 
 logger = logging.getLogger(__name__)
 
 TTL_SECONDS = 60
+DEV_PLAN_BYPASS_KEY = 'development-plan-bypass:{company_id}'
 
 
 def _get_cache():
@@ -42,3 +44,57 @@ def invalidate(company_id):
         _get_cache().delete(_state_key(company_id))
     except Exception:
         logger.warning('Payment cache unavailable (delete company=%s)', company_id)
+
+
+def development_plan_bypass_is_active(company_id):
+    """Return whether a temporary development-only company bypass is active."""
+    if not settings.DEBUG:
+        return False
+    try:
+        return bool(
+            caches['billing'].get(
+                DEV_PLAN_BYPASS_KEY.format(company_id=company_id)
+            )
+        )
+    except Exception:
+        logger.warning(
+            'Billing cache unavailable (development bypass get company=%s)',
+            company_id,
+        )
+        return False
+
+
+def enable_development_plan_bypass(company_id):
+    """Enable an indefinite development bypass in the shared billing cache."""
+    if not settings.DEBUG:
+        return False
+    try:
+        caches['billing'].set(
+            DEV_PLAN_BYPASS_KEY.format(company_id=company_id),
+            True,
+            timeout=None,
+        )
+        return True
+    except Exception:
+        logger.exception(
+            'Billing cache unavailable (development bypass set company=%s)',
+            company_id,
+        )
+        return False
+
+
+def disable_development_plan_bypass(company_id):
+    """Disable a development bypass in the shared billing cache."""
+    if not settings.DEBUG:
+        return False
+    try:
+        caches['billing'].delete(
+            DEV_PLAN_BYPASS_KEY.format(company_id=company_id)
+        )
+        return True
+    except Exception:
+        logger.exception(
+            'Billing cache unavailable (development bypass delete company=%s)',
+            company_id,
+        )
+        return False

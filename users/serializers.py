@@ -651,9 +651,12 @@ class UserManagementSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             company = validated_data.get('company')
             if company is not None:
-                PlanLimitsService.for_company(company).assert_can_add('users')
+                limits = PlanLimitsService.for_company(company)
+                limits.assert_can_add('users')
                 if validated_data.get('role') == User.Role.TEAM_MANAGER:
-                    PlanLimitsService.for_company(company).assert_can_add('team_managers')
+                    limits.assert_can_add('team_managers')
+                elif validated_data.get('role') == User.Role.AGENT:
+                    limits.assert_can_add('agents')
             user = super().create(validated_data)
 
         return user
@@ -665,17 +668,17 @@ class UserManagementSerializer(serializers.ModelSerializer):
         # be re-checked on the same row being changed. Demotion is never
         # blocked - it only frees a seat.
         new_role = validated_data.get('role')
-        becoming_manager = (
-            new_role == User.Role.TEAM_MANAGER
-            and instance.role != User.Role.TEAM_MANAGER
-        )
-        if becoming_manager:
+        role_changed = new_role and new_role != instance.role
+        if role_changed and new_role in (User.Role.TEAM_MANAGER, User.Role.AGENT):
             with transaction.atomic():
-                PlanLimitsService.for_company(instance.company).assert_can_add(
-                    'team_managers'
-                )
-
-        user = super().update(instance, validated_data)
+                limits = PlanLimitsService.for_company(instance.company)
+                if new_role == User.Role.TEAM_MANAGER:
+                    limits.assert_can_add('team_managers')
+                else:
+                    limits.assert_can_add('agents')
+                user = super().update(instance, validated_data)
+        else:
+            user = super().update(instance, validated_data)
 
         return user
 

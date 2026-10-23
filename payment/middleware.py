@@ -2,6 +2,7 @@
 
 import json
 from django.http import JsonResponse
+from payment.cache import development_plan_bypass_is_active
 from payment.guards import is_exempt
 from payment.services import get_company_state
 
@@ -24,6 +25,8 @@ class SubscriptionGuardMiddleware:
 
             company_id = getattr(user, 'company_id', None)
             if company_id:
+                if development_plan_bypass_is_active(company_id):
+                    return self.get_response(request)
                 state = get_company_state(company_id)
                 if state and not state.get('allowed', True):
                     return JsonResponse(

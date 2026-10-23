@@ -54,6 +54,32 @@ class CreditCharge(models.Model):
         return f"{self.task_id} ({self.kind}, {self.cost})"
 
 
+class CreditCost(models.Model):
+    class Operation(models.TextChoices):
+        CHAT_TURN = 'chat_turn', 'Chat query'
+        AI_PROPOSAL = 'ai_proposal', 'Proposal generation'
+        CALL_MINUTE = 'calling_agent_call', 'Calling agent minute'
+        TRANSCRIPT = 'transcript_processing', 'Transcript processing'
+        KNOWLEDGE_DOCUMENT = 'kb_document_extraction', 'Knowledge document extraction'
+
+    operation = models.CharField(
+        max_length=50,
+        choices=Operation.choices,
+        unique=True,
+    )
+    unit = models.CharField(max_length=30)
+    credits_per_unit = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['operation']
+        verbose_name = 'AI credit cost'
+        verbose_name_plural = 'AI credit costs'
+
+    def __str__(self):
+        return f"{self.get_operation_display()}: {self.credits_per_unit} credits/{self.unit}"
+
+
 class UsageCounter(models.Model):
     """Per-company, per-kind usage for one billing period.
 

@@ -589,6 +589,8 @@ class CallStatusTransitionService:
             and new_status in TERMINAL_STATUSES
             and call.status == new_status
         ):
+            if new_status == Call.Status.COMPLETED:
+                self._charge_completed_call(call)
             logger.info(
                 'Call status transition skipped call_id=%s public_id=%s '
                 'status=%s reason=already_terminal',
@@ -627,6 +629,8 @@ class CallStatusTransitionService:
             update_fields.append('duration_seconds')
 
         call.save(update_fields=update_fields)
+        if new_status == Call.Status.COMPLETED:
+            self._charge_completed_call(call)
         logger.info(
             'Call status transition applied call_id=%s public_id=%s '
             'from=%s to=%s duration_seconds=%s failure_code=%s',
@@ -643,6 +647,21 @@ class CallStatusTransitionService:
             broadcast_call_ended(call)
             update_lead_status_on_call_outcome(call)
         return True
+
+    @staticmethod
+    def _charge_completed_call(call: Call) -> None:
+        duration_seconds = call.duration_seconds or 0
+        if duration_seconds <= 0 or call.company_id is None:
+            return
+
+        minutes = (duration_seconds + 59) // 60
+        from calling_agent.services import charge_call_credits
+
+        charge_call_credits(
+            call.company,
+            f'completed-call:{call.pk}',
+            minutes=minutes,
+        )
 
 
 class CallTranscriptNormalizationService:

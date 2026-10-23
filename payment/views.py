@@ -16,11 +16,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from payment import plan_limits, services, stripe_client, webhooks
+from payment.cache import (
+    disable_development_plan_bypass,
+    enable_development_plan_bypass,
+)
 from payment.guards import payment_exempt
 from payment.models import ProcessedStripeEvent, ReferralInvitation, SubscriptionPlan
 from payment.serializers import (
     CheckoutRequestSerializer,
     CompanyNameTaken,
+    DevelopmentPlanBypassSerializer,
     EmailAlreadyRegistered,
     PlanChangeRequestSerializer,
     RegisterCompanySerializer,
@@ -63,6 +68,75 @@ class CanViewOrManageSubscriptionPlans(permissions.BasePermission):
 def _frontend_url(path=''):
     base = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000').rstrip('/')
     return f"{base}{path}"
+
+
+class DevelopmentPlanBypassView(APIView):
+    """Manage an indefinite development-only company plan bypass."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _authorize(self, request):
+        if not settings.DEBUG:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not (
+            request.user.is_superuser
+            or request.user.role == User.Role.SUPERADMIN
+        ):
+            return Response(
+                {'detail': 'Only a superadmin can manage development plan bypasses.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
+    @swagger_auto_schema(
+        tags=ADMIN_SWAGGER_TAG,
+        operation_summary='Enable or disable a development plan bypass',
+        request_body=DevelopmentPlanBypassSerializer,
+        responses={200: 'Development plan bypass updated', 403: 'Superadmin required'},
+    )
+    def post(self, request):
+        denied = self._authorize(request)
+        if denied:
+            return denied
+
+        serializer = DevelopmentPlanBypassSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        target_user = (
+            User.objects.select_related('company')
+            .filter(email__iexact=data['company_email'])
+            .first()
+        )
+        if target_user is None:
+            return Response(
+                {'detail': 'No company user was found for that email.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        company = target_user.company
+        enabled = data['enabled']
+        if enabled:
+            updated = enable_development_plan_bypass(company.pk)
+        else:
+            updated = disable_development_plan_bypass(company.pk)
+
+        if not updated:
+            return Response(
+                {'detail': 'The shared billing cache is unavailable.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        logger.warning(
+            'Development plan bypass %s company_id=%s actor_id=%s',
+            'enabled' if enabled else 'disabled',
+            company.pk,
+            request.user.pk,
+        )
+        return Response({
+            'company_id': company.pk,
+            'company_name': company.name,
+            'enabled': enabled,
+        })
 
 
 @payment_exempt
@@ -385,6 +459,104 @@ class BillingStatusView(APIView):
             'periodStart': plan_limits.current_period_start().isoformat(),
             'limits': services.limits_for(plan, company_id=company.pk),
             'usage': services.usage_snapshot(company.pk, plan=plan),
+        })
+
+
+@payment_exempt
+class BillingUsageView(APIView):
+    """Return plan usage and remaining balances in a frontend-ready shape."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=SWAGGER_TAG,
+        operation_summary='Get plan usage summary for the current company',
+        operation_description=(
+            'Returns current plan details, usage, remaining amounts, referral '
+            'credits, and configurable AI credit rates.'
+        ),
+    )
+    def get(self, request):
+        company = getattr(request.user, 'company', None)
+        plan = plan_limits.normalize_plan(
+            getattr(company, 'plan', None) or plan_limits.PLAN_MANUAL
+        )
+        limits = services.limits_for(plan, company_id=company.pk if company else None)
+        snapshot = (
+            services.usage_snapshot(company.pk, plan=plan)
+            if company
+            else {}
+        )
+
+        def metric(key, label):
+            value = snapshot.get(key, {})
+            limit = limits.get(key)
+            used = value.get('used', 0)
+            unlimited = limit is None
+            remaining = None if unlimited else max(limit - used, 0)
+            if unlimited:
+                percent_used = None
+            elif limit == 0:
+                percent_used = 100 if used else 0
+            else:
+                percent_used = min(round(used / limit * 100), 100)
+            return {
+                'label': label,
+                'used': used,
+                'limit': limit,
+                'remaining': remaining,
+                'unlimited': unlimited,
+                'percentUsed': percent_used,
+            }
+
+        base_credit_limit = plan_limits.limit_for(plan, 'ai_credits')
+        effective_credit_limit = limits.get('ai_credits')
+        referral_bonus = (
+            max(effective_credit_limit - base_credit_limit, 0)
+            if effective_credit_limit is not None and base_credit_limit is not None
+            else 0
+        )
+        period_start = plan_limits.current_period_start()
+
+        return Response({
+            'plan': {
+                'slug': plan,
+                'name': plan_limits.get_plan_name(plan),
+                'interval': getattr(company, 'billing_interval', None) or 'monthly',
+                'status': getattr(company, 'status', 'active'),
+                'features': limits.get('features', {}),
+            },
+            'period': {
+                'startsAt': period_start.isoformat(),
+                'resetsAt': period_start.replace(
+                    year=period_start.year + (period_start.month == 12),
+                    month=1 if period_start.month == 12 else period_start.month + 1,
+                ).isoformat(),
+            },
+            'usage': {
+                'aiCredits': {
+                    **metric('ai_credits', 'AI credits'),
+                    'referralBonus': referral_bonus,
+                },
+                'aiProposals': metric('ai_proposals', 'AI proposals'),
+                'users': metric('users', 'Users'),
+                'agents': metric('agents', 'Agents'),
+                'teamManagers': metric('team_managers', 'Team managers'),
+            },
+            'creditCosts': {
+                'chatQuery': {
+                    'creditsPerUnit': services.credit_cost_for('chat_turn'),
+                    'unit': 'query',
+                },
+                'proposal': {
+                    'creditsPerUnit': services.credit_cost_for('ai_proposal'),
+                    'unit': 'proposal',
+                },
+                'call': {
+                    'creditsPerUnit': services.credit_cost_for('calling_agent_call'),
+                    'unit': 'minute',
+                },
+            },
         })
 
 

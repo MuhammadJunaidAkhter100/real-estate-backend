@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from payment import cache, plan_limits, stripe_client
 from payment.exceptions import PlanLimitReached
-from payment.models import CreditCharge, UsageCounter
+from payment.models import CreditCharge, CreditCost, UsageCounter
 from users.models import Company, User
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,25 @@ def current_count(company_id, kind, now=None):
 def limits_for(plan, company_id=None):
     """Return dictionary of limits for plan."""
     norm_plan = plan_limits.normalize_plan(plan)
+
+    def apply_development_bypass(result):
+        if not company_id or not plan_limits.development_plan_bypass_is_active(company_id):
+            return result
+        result = dict(result)
+        result.update({
+            'users': None,
+            'agents': None,
+            'team_managers': None,
+            'ai_credits': None,
+            'ai_proposals': None,
+        })
+        features = dict(result.get('features') or {})
+        result['features'] = {
+            key: True if isinstance(value, bool) else value
+            for key, value in features.items()
+        }
+        return result
+
     try:
         from payment.models import SubscriptionPlan
         db_plan = SubscriptionPlan.objects.filter(slug=norm_plan).first()
@@ -67,14 +86,17 @@ def limits_for(plan, company_id=None):
                 'agents': None if db_plan.is_agents_unlimited else db_plan.agents,
                 'team_managers': None if db_plan.is_team_managers_unlimited else db_plan.team_managers,
                 'ai_credits': None if db_plan.is_credits_unlimited else db_plan.ai_credits,
-                'ai_proposals': None,
+                'ai_proposals': plan_limits.limit_for(
+                    norm_plan, UsageCounter.Kind.AI_PROPOSALS,
+                    company_id=company_id,
+                ),
                 'features': db_plan.features or {},
                 'custom_features': db_plan.custom_features or [],
             }
             result['ai_credits'] = plan_limits.limit_for(
                 norm_plan, UsageCounter.Kind.AI_CREDITS, company_id=company_id
             )
-            return result
+            return apply_development_bypass(result)
     except Exception:
         pass
 
@@ -82,7 +104,7 @@ def limits_for(plan, company_id=None):
     result['ai_credits'] = plan_limits.limit_for(
         norm_plan, UsageCounter.Kind.AI_CREDITS, company_id=company_id
     )
-    return result
+    return apply_development_bypass(result)
 
 
 def usage_snapshot(company_id, plan=None):
@@ -198,23 +220,54 @@ def has_receipt(receipt_id):
     return CreditCharge.objects.filter(task_id=receipt_id).exists()
 
 
-def consume_credits(company_id, operation, *, receipt_id=None):
-    """Meter one AI operation."""
-    cost = plan_limits.CREDIT_COSTS.get(operation)
-    if cost is None:
+def credit_cost_for(operation):
+    """Return the current database-configured rate, or the code default."""
+    configured_cost = CreditCost.objects.filter(
+        operation=operation
+    ).values_list('credits_per_unit', flat=True).first()
+    if configured_cost is not None:
+        return configured_cost
+    return plan_limits.CREDIT_COSTS.get(operation)
+
+
+def consume_credits(company_id, operation, *, quantity=1, receipt_id=None):
+    """Meter an operation using its configured credits-per-unit rate."""
+    unit_cost = credit_cost_for(operation)
+    if unit_cost is None:
         raise KeyError(f'Unknown metered operation: {operation!r}')
-    return consume(company_id, UsageCounter.Kind.AI_CREDITS, cost, receipt_id=receipt_id)
+    if quantity < 1:
+        raise ValueError('quantity must be at least 1')
+    return consume(
+        company_id,
+        UsageCounter.Kind.AI_CREDITS,
+        unit_cost * quantity,
+        receipt_id=receipt_id,
+    )
 
 
-def refund_credits(company_id, operation, *, receipt_id=None):
-    cost = plan_limits.CREDIT_COSTS.get(operation, 0)
+def refund_credits(company_id, operation, *, quantity=1, receipt_id=None):
+    cost = (credit_cost_for(operation) or 0) * quantity
+    if receipt_id:
+        charged_cost = CreditCharge.objects.filter(
+            task_id=receipt_id,
+            company_id=company_id,
+            kind=UsageCounter.Kind.AI_CREDITS,
+        ).values_list('cost', flat=True).first()
+        if charged_cost is not None:
+            cost = charged_cost
     if cost:
         refund(company_id, UsageCounter.Kind.AI_CREDITS, cost, receipt_id=receipt_id)
 
 
-def assert_can_use_credits(company_id, operation, *, cost=1, now=None):
+def assert_can_use_credits(company_id, operation, *, quantity=1, cost=None, now=None):
     """Raise PlanLimitReached (403) if operation would exceed credit cap."""
     plan = Company.objects.only('pk', 'plan').filter(pk=company_id).values_list('plan', flat=True).first()
+    if cost is None:
+        unit_cost = credit_cost_for(operation)
+        if unit_cost is None:
+            raise KeyError(f'Unknown metered operation: {operation!r}')
+        cost = unit_cost * quantity
+
     limit = plan_limits.limit_for(
         plan or plan_limits.PLAN_FREE,
         UsageCounter.Kind.AI_CREDITS,
@@ -259,7 +312,7 @@ class PlanLimitsService:
         return plan_limits.normalize_plan(plan)
 
     def limits(self):
-        return limits_for(self._plan())
+        return limits_for(self._plan(), company_id=self.company_id)
 
     def current(self, kind, now=None):
         return current_count(self.company_id, kind, now=now)

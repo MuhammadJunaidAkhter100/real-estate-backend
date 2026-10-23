@@ -398,22 +398,25 @@ class ManualCallInitiationService:
 
         self.provider_initiation.initiate(call, configuration)
         call.refresh_from_db()
-        charge_call_credits(call.company, f"manual-call:{call.initiation_key}")
         return call, True
 
 
-def charge_call_credits(company, receipt):
-    """Bill 5 AI credits for a call that was actually placed.
+def charge_call_credits(company, receipt, *, minutes=1):
+    """Bill the configured AI credits per completed call minute.
 
-    Called after provider initiation succeeds, so a call that never dialled out
-    costs nothing. The receipt is keyed on the call's idempotency key, so a
-    retried request is never charged twice.
+    ``minutes`` is rounded up by the caller. A stable receipt makes retries
+    idempotent.
     """
     if company is None:
         return False
     from payment.services import consume_credits
 
-    return consume_credits(company.pk, 'calling_agent_call', receipt_id=receipt)
+    return consume_credits(
+        company.pk,
+        'calling_agent_call',
+        quantity=minutes,
+        receipt_id=receipt,
+    )
 
 
 def charge_transcript_credits(call):
@@ -971,8 +974,6 @@ class ScheduledCallService:
 
         initiated = self.provider_initiation.initiate(call, configuration)
         call.refresh_from_db()
-        if initiated:
-            charge_call_credits(call.company, f"scheduled-call:{call.pk}")
         return call, initiated
 
     @staticmethod
