@@ -13,7 +13,6 @@ from chatbot.data_extraction import (DataExtractor, ExtractionError, Unsupported
 from chatbot.models import KnowledgeBaseDocument, PublicKnowledgeBaseDocument
 from chatbot.website_knowledge import (
     MAX_DOCUMENT_CHARS,
-    WEBSITE_DOCUMENT_FILE,
     WebsiteImportError,
     crawl_website,
     normalize_website_url,
@@ -200,9 +199,10 @@ def import_company_website_knowledge(self, company_id: int, website: str = "", r
     """
     Read a company's website and file its text in the knowledge base.
 
-    The text is stored as one document ("Website Data.docx") and indexed for
-    search. Running it again replaces the previous import, so a company only
-    ever has one website document. Not charged: it is part of onboarding.
+    Each import is stored as a versioned website document and indexed for
+    search. Earlier files remain available in the knowledge-base list, while
+    vectors from previous versions are removed after a successful re-index.
+    Not charged: it is part of onboarding.
     """
     from users.models import Company
 
@@ -225,6 +225,12 @@ def import_company_website_knowledge(self, company_id: int, website: str = "", r
     doc.status = KnowledgeBaseDocument.Status.PROCESSING
     doc.task_id = self.request.id or ""
     doc.save(update_fields=["status", "task_id", "updated_at"])
+    previous_website_doc_ids = list(
+        KnowledgeBaseDocument.objects.filter(
+            user__company=company,
+            source=KnowledgeBaseDocument.Source.WEBSITE,
+        ).exclude(pk=doc.pk).values_list("pk", flat=True)
+    )
 
     try:
         content = crawl_website(website)
@@ -258,6 +264,11 @@ def import_company_website_knowledge(self, company_id: int, website: str = "", r
             service.delete_document_chunks(doc.pk, chunks_stored, max_chunks)
         except PineconeServiceError:
             logger.warning("Could not clear old website chunks for doc %s", doc.pk)
+        for previous_doc_id in previous_website_doc_ids:
+            try:
+                service.delete_document(previous_doc_id)
+            except PineconeServiceError:
+                logger.warning("Could not clear old website vectors for doc %s", previous_doc_id)
 
         doc.status = KnowledgeBaseDocument.Status.COMPLETED
         doc.save(update_fields=["status", "updated_at"])

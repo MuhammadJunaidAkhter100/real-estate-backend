@@ -584,8 +584,7 @@ class KnowledgeBaseWebsiteView(APIView):
 
     The website is read automatically when a company signs up with one. POST
     lets a company admin add or change the address later, or retry a failed
-    import. The import runs in the background and replaces the previous
-    document.
+    import. Each import is kept as a separate knowledge-base document.
     """
     permission_classes = [IsAuthenticated, IsCompanyAdmin]
     parser_classes = [JSONParser, FormParser, MultiPartParser]
@@ -632,8 +631,8 @@ class KnowledgeBaseWebsiteView(APIView):
         tags=['Chatbot'],
         operation_description=(
             'Company admins only. Reads the company website and stores its text '
-            'in the knowledge base as "Website Data.txt", replacing the previous '
-            'import. Send `website` to add or change the address; leave it out '
+            'in the knowledge base as a versioned DOCX document. Previous imports '
+            'remain in the knowledge-base document list. Send `website` to add or change the address; leave it out '
             'to read the saved one again. Runs in the background: poll GET until '
             'the status is completed or failed. Answers 409 while an import is '
             'already running.'

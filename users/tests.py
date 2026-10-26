@@ -579,6 +579,145 @@ class CommissionTestCase(TestCase):
 
 
 class WebsiteScraperTestCase(TestCase):
+    @patch('users.website_scraper._ai_select_homepage_project_cards', return_value=[])
+    @patch('users.website_scraper._candidate_project_urls_from_content', return_value=['https://example.com/projects'])
+    @patch('users.website_scraper.requests.get')
+    def test_scrape_company_website_reads_all_discovered_catalog_pages(
+        self, mock_get, _mock_catalogs, mock_select_projects,
+    ):
+        from users.website_scraper import scrape_company_website
+
+        def response(html, url):
+            mock_response = MagicMock(text=html, url=url)
+            mock_response.raise_for_status.return_value = None
+            return mock_response
+
+        mock_get.side_effect = [
+            response('<html><body>Company home</body></html>', 'https://example.com'),
+            response('''<div><a href="/projects/first">First Project</a></div>
+                        <nav class="pagination"><a href="/projects?page=2">2</a></nav>''',
+                     'https://example.com/projects'),
+            response('''<div><a href="/projects/second">Second Project</a></div>
+                        <nav class="pagination"><a href="/projects?page=3">3</a></nav>''',
+                     'https://example.com/projects?page=2'),
+            response('''<div><a href="/projects/third">Third Project</a></div>
+                        <nav class="pagination"><a href="/projects?page=1">1</a></nav>''',
+                     'https://example.com/projects?page=3'),
+        ]
+
+        result = scrape_company_website('https://example.com')
+
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(mock_get.call_count, 4)
+        scraped_content = mock_select_projects.call_args.args[1]
+        self.assertIn('https://example.com/projects/first', scraped_content)
+        self.assertIn('https://example.com/projects/second', scraped_content)
+        self.assertIn('https://example.com/projects/third', scraped_content)
+
+    def test_pagination_links_are_found_only_on_the_catalog_route(self):
+        from bs4 import BeautifulSoup
+        from users.website_scraper import _pagination_page_urls
+
+        soup = BeautifulSoup('''
+            <nav class="pagination">
+                <a href="/projects?page=1">1</a>
+                <a href="/projects?page=2">2</a>
+                <a href="/projects?page=3">3</a>
+                <a href="/projects/category/residential?page=2">Residential</a>
+            </nav>
+        ''', 'html.parser')
+
+        self.assertEqual(
+            _pagination_page_urls(soup, 'https://www.example.com/projects'),
+            [
+                'https://www.example.com/projects?page=2',
+                'https://www.example.com/projects?page=3',
+            ],
+        )
+
+    @patch('users.website_scraper.requests.get')
+    def test_extract_website_branding_reads_same_site_stylesheet(self, mock_get):
+        from users.website_scraper import HEADERS, extract_website_branding
+
+        mock_get.return_value.text = '''
+            :root { --brand-primary: #234567; --brand-accent: #e45634; }
+            body { font-family: "Estate Sans", sans-serif; }
+        '''
+        mock_get.return_value.raise_for_status.return_value = None
+        html = '<link rel="stylesheet" href="/assets/theme.css">'
+
+        branding = extract_website_branding(html, 'https://example.com')
+
+        self.assertEqual(branding['theme']['colors']['primary'], '#234567')
+        self.assertEqual(branding['theme']['colors']['accent'], '#e45634')
+        self.assertIn('Estate Sans', branding['theme']['fonts'])
+        mock_get.assert_called_once_with(
+            'https://example.com/assets/theme.css',
+            headers=HEADERS,
+            timeout=5,
+        )
+
+    def test_extract_website_branding(self):
+        from users.website_scraper import extract_website_branding
+
+        html = '''
+            <html>
+                <head>
+                    <meta name="theme-color" content="#123456">
+                    <link rel="icon" href="/favicon.ico">
+                    <style>
+                        :root {
+                            --brand-primary: #123456;
+                            --brand-accent: rgb(220, 80, 40);
+                            --page-background: #ffffff;
+                            --font-family: "Example Sans", sans-serif;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <header><img src="/assets/company-logo.svg" alt="Company logo"></header>
+                </body>
+            </html>
+        '''
+
+        branding = extract_website_branding(html, 'https://example.com')
+
+        self.assertEqual(branding['logo_url'], 'https://example.com/assets/company-logo.svg')
+        self.assertEqual(branding['favicon_url'], 'https://example.com/favicon.ico')
+        self.assertEqual(branding['theme']['colors']['primary'], '#123456')
+        self.assertEqual(branding['theme']['colors']['accent'], 'rgb(220, 80, 40)')
+        self.assertIn('Example Sans', branding['theme']['fonts'])
+
+    @patch('users.website_scraper.requests.get')
+    def test_project_detail_image_prefers_project_hero_over_generic_social_image(self, mock_get):
+        from users.website_scraper import scrape_project_details
+
+        detail_url = 'https://example.com/projects/harbor-view'
+        mock_get.return_value.url = detail_url
+        mock_get.return_value.text = '''
+            <html>
+                <head>
+                    <meta property="og:image" content="/images/company-share.jpg">
+                </head>
+                <body>
+                    <header><img src="/images/company-logo.svg" alt="Company logo"></header>
+                    <main>
+                        <h1>Harbor View</h1>
+                        <img src="/images/harbor-view-exterior.jpg"
+                             alt="Harbor View exterior" class="project-hero">
+                    </main>
+                </body>
+            </html>
+        '''
+        mock_get.return_value.raise_for_status.return_value = None
+
+        result = scrape_project_details(detail_url)
+
+        self.assertEqual(
+            result['image_url'],
+            'https://example.com/images/harbor-view-exterior.jpg',
+        )
+
     def test_extract_real_estate_projects_from_html(self):
         from users.website_scraper import extract_projects_from_html
 
@@ -749,6 +888,10 @@ class ScrapedProjectCreationTestCase(TestCase):
         mock_scrape.return_value = {
             'website': company.website,
             'status': 'completed',
+            'website_branding': {
+                'logo_url': 'https://legacyinvestmentconsultancy.com/logo.svg',
+                'theme': {'colors': {'primary': '#123456'}, 'palette': ['#123456'], 'fonts': ['Example Sans']},
+            },
             'projects': [
                 {
                     'name': 'London House',
@@ -772,6 +915,16 @@ class ScrapedProjectCreationTestCase(TestCase):
         self.assertTrue(project.visible_to_companies.filter(pk=company.pk).exists())
         self.assertEqual(first_report['project_ids'], [project.pk])
         self.assertEqual(second_report['project_ids'], [project.pk])
+        company.refresh_from_db()
+        self.assertEqual(
+            company.website_branding['logo_url'],
+            'https://legacyinvestmentconsultancy.com/logo.svg',
+        )
+        from users.serializers import CompanyDetailSerializer
+        self.assertEqual(
+            CompanyDetailSerializer(company).data['website_branding'],
+            company.website_branding,
+        )
         self.assertEqual(mock_image_task.call_count, 2)
         mock_image_task.assert_called_with(
             project.pk,

@@ -65,6 +65,7 @@ class Company(models.Model):
     operating_countries = models.JSONField(default=list, blank=True)
     website = models.URLField(max_length=255, blank=True, default='')
     website_data = models.JSONField(default=dict, blank=True)
+    website_branding = models.JSONField(default=dict, blank=True)
     website_scrape_status = models.CharField(max_length=30, blank=True, default='')
     status = models.CharField(
         max_length=20,

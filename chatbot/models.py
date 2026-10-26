@@ -31,8 +31,8 @@ def _knowledge_base_upload_path(instance, filename):
 class KnowledgeBaseDocument(models.Model):
     """A knowledge-base document whose text is extracted asynchronously.
 
-    Most are files a user uploaded. One per company can instead be built from
-    the company's own website (source="website").
+    Most are files a user uploaded. Website imports (source="website") are
+    versioned documents owned by a user in that company.
     """
 
     class Status(models.TextChoices):

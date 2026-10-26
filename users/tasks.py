@@ -430,6 +430,11 @@ def scrape_company_website_task(self, company_id: int, website: str):
         _update_progress(100, 'Scraping failed', extra={'status': 'failed', 'error': str(exc)})
         return {'status': 'failed', 'error': str(exc), 'projects': []}
 
+    branding = report.get('website_branding')
+    if isinstance(branding, dict) and branding:
+        company.website_branding = branding
+        company.save(update_fields=['website_branding', 'updated_at'])
+
     if report.get('status') == 'failed':
         err = report.get('error') or 'Scraping failed'
         logger.error("Scraping returned failure for company_id=%s: %s", company_id, err)

@@ -1,8 +1,8 @@
 """Turn a company's public website into one knowledge-base document.
 
 A company gives us its website at signup. We read a handful of its pages, keep
-the readable text and file it in the knowledge base as a single Word document
-("Website Data.docx"), so the chatbot and the calling agent can answer from it.
+the readable text and file it in the knowledge base as a single domain-named
+Word document, so the chatbot and the calling agent can answer from it.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import heapq
 import ipaddress
 import logging
+import re
 import socket
 import time
 from dataclasses import dataclass, field
@@ -28,7 +29,17 @@ logger = logging.getLogger(__name__)
 
 # How the document appears in the knowledge base, and the file it is stored as.
 WEBSITE_DOCUMENT_NAME = 'Website Data.docx'
-WEBSITE_DOCUMENT_FILE = 'website_data.docx'
+
+
+def website_document_filename(website: str, version_id: int | None = None) -> str:
+    """Build a readable, unique filename for one website import version."""
+    host = (urlparse(normalize_website_url(website)).hostname or '').lower()
+    if host.startswith('www.'):
+        host = host[4:]
+    site_name = re.sub(r'[^a-z0-9]+', '_', host.split('.')[0]).strip('_') or 'website'
+    version = f'_{version_id}' if version_id is not None else ''
+    return f'Website_Data_{site_name}{version}.docx'
+
 
 # Crawl limits. Scaled up to cover full company sites and all projects.
 MAX_PAGES = 100
@@ -135,11 +146,12 @@ def website_document_docx_bytes(content: WebsiteContent) -> bytes:
 
 def save_website_document_versions(doc: KnowledgeBaseDocument, content: WebsiteContent, text: str) -> None:
     """Persist the scraped site as a DOCX document only."""
+    filename = doc.original_filename or website_document_filename(content.website, doc.pk)
     if doc.file:
         doc.file.delete(save=False)
 
-    doc.file.save(WEBSITE_DOCUMENT_FILE, ContentFile(website_document_docx_bytes(content)), save=False)
-    doc.original_filename = WEBSITE_DOCUMENT_NAME
+    doc.file.save(filename, ContentFile(website_document_docx_bytes(content)), save=False)
+    doc.original_filename = filename
     doc.file_type = 'docx'
     doc.save(update_fields=['original_filename', 'file_type', 'updated_at'])
 
@@ -384,7 +396,7 @@ def website_document(company) -> KnowledgeBaseDocument | None:
     return (
         KnowledgeBaseDocument.objects
         .filter(user__company=company, source=KnowledgeBaseDocument.Source.WEBSITE)
-        .order_by('pk')
+        .order_by('-pk')
         .first()
     )
 
@@ -393,12 +405,23 @@ def prepare_website_document(company, website: str, owner=None) -> KnowledgeBase
     """Create the company's website document, or reset the one it has, so it
     shows as pending while the import runs.
 
-    A company has a single website document. It is filed under `owner` when
-    given, otherwise under the company admin. Returns None when the company
-    has no user to own it.
+    Each import gets a separate document, except that a pending document made
+    by the API is reused by its queued task. It is filed under `owner` when
+    given, otherwise under the company admin.
     """
-    doc = website_document(company)
-    if doc is None:
+    latest_doc = website_document(company)
+    reusable_statuses = (
+        KnowledgeBaseDocument.Status.PENDING,
+        KnowledgeBaseDocument.Status.PROCESSING,
+    )
+    doc = latest_doc if (
+        latest_doc
+        and latest_doc.status in reusable_statuses
+        and latest_doc.source_url == website
+    ) else None
+    is_new = doc is None
+
+    if is_new:
         owner = owner or (
             company.users.filter(role='company_admin').order_by('pk').first()
             or company.users.order_by('pk').first()
@@ -408,11 +431,14 @@ def prepare_website_document(company, website: str, owner=None) -> KnowledgeBase
         doc = KnowledgeBaseDocument(
             user=owner,
             source=KnowledgeBaseDocument.Source.WEBSITE,
-            original_filename=WEBSITE_DOCUMENT_NAME,
+            original_filename=website_document_filename(website),
             file_type='docx',
         )
     doc.source_url = website
     doc.status = KnowledgeBaseDocument.Status.PENDING
     doc.error = ''
     doc.save()
+    if is_new:
+        doc.original_filename = website_document_filename(website, doc.pk)
+        doc.save(update_fields=['original_filename', 'updated_at'])
     return doc

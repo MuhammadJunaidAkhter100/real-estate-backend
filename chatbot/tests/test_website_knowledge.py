@@ -17,7 +17,6 @@ from chatbot.pinecone_service import PineconeServiceError
 from chatbot.tasks import import_company_website_knowledge
 from chatbot.website_knowledge import (
     MAX_PAGES,
-    WEBSITE_DOCUMENT_NAME,
     WebsiteContent,
     WebsiteImportError,
     WebsitePage,
@@ -25,6 +24,7 @@ from chatbot.website_knowledge import (
     fetch_page,
     is_public_url,
     normalize_website_url,
+    website_document_filename,
 )
 from users.models import Company, User
 
@@ -230,6 +230,16 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
             result = import_company_website_knowledge.run(self.company.pk, **kwargs)
         return result, crawl, pinecone.return_value
 
+    def test_website_document_filename_uses_the_domain(self):
+        self.assertEqual(
+            website_document_filename('https://keeleyproperties.com/'),
+            'Website_Data_keeleyproperties.docx',
+        )
+        self.assertEqual(
+            website_document_filename('https://www.acme.test/about'),
+            'Website_Data_acme.docx',
+        )
+
     def test_files_the_website_under_the_company_admin(self):
         result, crawl, pinecone = self.run_import()
 
@@ -238,7 +248,7 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
 
         doc = self.documents().get()
         self.assertEqual(doc.user, self.admin)
-        self.assertEqual(doc.original_filename, WEBSITE_DOCUMENT_NAME)
+        self.assertEqual(doc.original_filename, f'Website_Data_acme_{doc.pk}.docx')
         self.assertEqual(doc.file_type, 'docx')
         self.assertEqual(doc.status, KnowledgeBaseDocument.Status.COMPLETED)
         self.assertEqual(doc.source_url, 'https://acme.test/')
@@ -260,27 +270,32 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
         self.run_import()
 
         doc = self.documents().get()
-        docx_path = doc.file.name.rsplit('/', 1)[0] + '/website_data.docx'
+        docx_path = doc.file.name.rsplit('/', 1)[0] + f'/{doc.original_filename}'
         self.assertTrue(doc.file.storage.exists(docx_path))
         with doc.file.storage.open(docx_path, 'rb') as stored:
             self.assertTrue(stored.read().startswith(b'PK'))
 
-    def test_running_again_replaces_the_same_document(self):
+    def test_running_again_keeps_a_separate_website_document_version(self):
         self.run_import()
         first = self.documents().get()
 
         _, _, pinecone = self.run_import(content=site_content('Acme Realty now also sells in Abu Dhabi.'))
 
-        doc = self.documents().get()
-        self.assertEqual(doc.pk, first.pk)
-        with doc.file.open('rb') as stored:
+        self.assertEqual(self.documents().count(), 2)
+        latest = self.documents().order_by('-pk').first()
+        self.assertNotEqual(latest.pk, first.pk)
+        self.assertNotEqual(latest.original_filename, first.original_filename)
+        with first.file.open('rb') as stored:
+            previous_doc = Document(stored)
+            previous_text = '\n'.join(paragraph.text for paragraph in previous_doc.paragraphs)
+        self.assertIn('sells homes in Dubai', previous_text)
+
+        with latest.file.open('rb') as stored:
             word_doc = Document(stored)
             text = '\n'.join(paragraph.text for paragraph in word_doc.paragraphs)
         self.assertIn('Abu Dhabi', text)
         self.assertNotIn('sells homes in Dubai', text)
-        # Chunks the shorter text no longer covers are cleared.
-        cleared = pinecone.delete_document_chunks.call_args.args
-        self.assertEqual(cleared[:2], (doc.pk, 3))
+        pinecone.delete_document.assert_called_once_with(first.pk)
 
     def test_a_website_that_cannot_be_read_marks_the_document_failed(self):
         result, _, pinecone = self.run_import(
@@ -294,11 +309,13 @@ class ImportWebsiteTaskTests(WebsiteKnowledgeTestCase):
 
     def test_a_failed_reimport_keeps_the_previous_file(self):
         self.run_import()
+        previous = self.documents().get()
         self.run_import(error=WebsiteImportError('The website could not be opened.'))
 
-        doc = self.documents().get()
-        self.assertEqual(doc.status, KnowledgeBaseDocument.Status.FAILED)
-        with doc.file.open('rb') as stored:
+        latest = self.documents().order_by('-pk').first()
+        self.assertEqual(self.documents().count(), 2)
+        self.assertEqual(latest.status, KnowledgeBaseDocument.Status.FAILED)
+        with previous.file.open('rb') as stored:
             word_doc = Document(stored)
             text = '\n'.join(paragraph.text for paragraph in word_doc.paragraphs)
             self.assertIn('Acme Realty sells homes in Dubai.', text)
@@ -384,8 +401,24 @@ class WebsiteKnowledgeApiTests(WebsiteKnowledgeTestCase):
         self.queue_import.assert_called_once_with(self.company.pk, 'https://acme.test', self.admin.pk)
         self.assertEqual(response.data['status'], 'pending')
         self.assertEqual(response.data['document']['id'], doc.pk)
-        self.assertEqual(response.data['document']['original_filename'], 'Website Data.docx')
+        self.assertTrue(response.data['document']['original_filename'].startswith('Website_Data_acme_'))
         self.assertEqual(response.data['document']['source'], 'website')
+
+    def test_completed_reimport_preserves_both_documents_in_the_list(self):
+        first_response = self.client.post(WEBSITE_URL, {}, format='json')
+        first_doc = self.documents().get()
+        self.documents().filter(pk=first_doc.pk).update(status=KnowledgeBaseDocument.Status.COMPLETED)
+
+        second_response = self.client.post(WEBSITE_URL, {}, format='json')
+        listed = self.client.get('/api/chatbot/knowledge-base/')
+
+        self.assertEqual(first_response.status_code, 202)
+        self.assertEqual(second_response.status_code, 202)
+        self.assertEqual(self.documents().count(), 2)
+        self.assertEqual(listed.status_code, 200)
+        website_docs = [doc for doc in listed.data if doc['source'] == 'website']
+        self.assertEqual(len(website_docs), 2)
+        self.assertNotEqual(website_docs[0]['id'], website_docs[1]['id'])
 
     def test_post_with_a_new_address_saves_it_on_the_company(self):
         response = self.client.post(WEBSITE_URL, {'website': 'newacme.test'}, format='json')
@@ -442,7 +475,7 @@ class WebsiteKnowledgeApiTests(WebsiteKnowledgeTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['original_filename'], 'Website Data.docx')
+        self.assertTrue(response.data[0]['original_filename'].startswith('Website_Data_acme_'))
         self.assertEqual(response.data[0]['source'], 'website')
         self.assertEqual(response.data[0]['source_url'], 'https://acme.test')
 

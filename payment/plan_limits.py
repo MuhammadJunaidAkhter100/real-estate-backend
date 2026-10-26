@@ -32,13 +32,13 @@ PLAN_LIMITS = {
         'features': {
             'lead_management': True,
             'task_management': True,
-            'task_automation': False,
+            'task_automation': True,
             'commission_intelligence': True,
             'team_management': True,
-            'ai_proposal_generation': False,
+            'ai_proposal_generation': True,
             'whatsapp_integration': True,
             'ai_calling_agent': True,
-            'call_transcript_ai_summary': False,
+            'call_transcript_ai_summary': True,
         },
     },
     PLAN_PRO: {

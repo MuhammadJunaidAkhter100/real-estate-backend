@@ -224,7 +224,8 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
         model = Company
         fields = [
             'id', 'name', 'phone', 'operating_countries', 'website',
-            'website_scrape_status', 'company_admin', 'created_at', 'updated_at'
+            'website_scrape_status', 'website_branding', 'company_admin',
+            'created_at', 'updated_at'
         ]
 
     def get_company_admin(self, obj):
